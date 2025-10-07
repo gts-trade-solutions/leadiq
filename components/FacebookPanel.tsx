@@ -1,486 +1,919 @@
-'use client';
+"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Wand2, Image as ImageIcon, Upload as UploadIcon, Loader2,
-  RefreshCcw, LogOut, Rocket
-} from 'lucide-react';
-// If you want strict typing, import from @supabase/supabase-js and type SupabaseClient.
-// To avoid version mismatches, we keep `any` here.
-type Supa = any;
+import React from "react";
 
-type Draft = { headline?: string; body?: string; hashtags?: string[] } | null;
-type DalleSize = '1792x1024' | '1024x1024' | '1024x1792';
+/**
+ * ──────────────────────────────────────────────────────────────────────────────
+ * SUPABASE SETUP (client-side, anon key)
+ * ──────────────────────────────────────────────────────────────────────────────
+ * Env needed:
+ *  - NEXT_PUBLIC_SUPABASE_URL
+ *  - NEXT_PUBLIC_SUPABASE_ANON_KEY
+ *
+ * Tables this UI uses directly:
+ *  - credits_wallets(user_id uuid PK, balance int, plan text, resets_at timestamptz, updated_at timestamptz)
+ *  - credits_ledger(id uuid pk default gen_random_uuid(), user_id uuid, feature text, amount int, meta jsonb, created_at timestamptz default now())
+ *  - credits_prices(feature text pk, price int)      // optional
+ *  - social_accounts(id uuid pk, user_id uuid, provider text, fb_user_id text, page_access_token text, page_name text, created_at timestamptz, ...)
+ *
+ * RLS (high-level):
+ *  - wallets:   user can select/update ONLY where user_id = auth.uid()
+ *  - ledger:    user can insert/select ONLY where user_id = auth.uid()
+ *  - accounts:  user can select/delete ONLY rows where user_id = auth.uid() AND provider='facebook'
+ *
+ * Atomic Credit Spend:
+ *  - Create RPC:
+ *      create or replace function public.spend_credit(p_feature text, p_amount int, p_meta jsonb)
+ *      returns table(balance int)
+ *      language plpgsql security definer as $$
+ *      declare v_balance int;
+ *      begin
+ *        -- lock wallet
+ *        update credits_wallets set updated_at = now()
+ *        where user_id = auth.uid()
+ *        returning balance into v_balance;
+ *        if not found then raise exception 'WALLET_NOT_FOUND'; end if;
+ *        if v_balance < p_amount then raise exception 'INSUFFICIENT_CREDITS'; end if;
+ *        update credits_wallets set balance = balance - p_amount, updated_at = now()
+ *        where user_id = auth.uid();
+ *        insert into credits_ledger(user_id,feature,amount,meta) values(auth.uid(), p_feature, -p_amount, p_meta);
+ *        return query select balance from credits_wallets where user_id = auth.uid();
+ *      end$$;
+ *
+ * Connection limit (2):
+ *  - You can enforce at DB via a trigger that prevents INSERT when user already has >= 2 rows for provider='facebook'.
+ *    (Happy to paste that trigger if you want it.)
+ */
 
-type Props = {
-  supabase: Supa;
-  callFn: (name: string, init?: RequestInit) => Promise<any>;
-  refreshWallet: () => Promise<void>;
+async function getSupabase() {
+  const { createClient } = await import("@supabase/supabase-js");
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  return createClient(url, key);
+}
+
+/* Small UI helpers */
+const Pill: React.FC<{
+  tone?: "blue" | "green" | "rose" | "slate";
+  children: React.ReactNode;
+}> = ({ tone = "slate", children }) => {
+  const cls: Record<string, string> = {
+    blue: "bg-blue-500/10 text-blue-300",
+    green: "bg-emerald-500/10 text-emerald-300",
+    rose: "bg-rose-500/10 text-rose-300",
+    slate: "bg-slate-700/40 text-slate-300",
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-1 text-xs ${cls[tone]}`}
+    >
+      {children}
+    </span>
+  );
+};
+const TabBtn: React.FC<{
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}> = ({ active, onClick, children }) => (
+  <button
+    onClick={onClick}
+    className={`rounded-lg px-3 py-2 text-sm font-medium ${
+      active
+        ? "bg-slate-800 text-slate-100"
+        : "text-slate-300 hover:bg-slate-800/60"
+    }`}
+  >
+    {children}
+  </button>
+);
+function openPopup(url: string, title = "popup", w = 620, h = 680) {
+  const l = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+  const t = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+  return window.open(
+    url,
+    title,
+    `width=${w},height=${h},left=${l},top=${t},resizable=yes,scrollbars=yes`
+  );
+}
+function copy(s: string) {
+  try {
+    navigator.clipboard.writeText(s);
+  } catch {}
+}
+
+type TabKey = "accounts" | "posts" | "profile" | "compose";
+type Prices = Partial<
+  Record<
+    | "connect"
+    | "ai_write"
+    | "share"
+    | "comment_reply"
+    | "comment_moderate"
+    | "export",
+    number
+  >
+>;
+
+const DEFAULT_PRICES: Prices = {
+  connect: 1,
+  ai_write: 2,
+  share: 1,
+  comment_reply: 1,
+  comment_moderate: 1,
+  export: 1,
 };
 
-type PageInfo = { id: string; name?: string; category?: string };
+export default function FacebookPanelWithCredits() {
+  const APP_ID = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "";
+  const [tab, setTab] = React.useState<TabKey>("accounts");
+  const [err, setErr] = React.useState<string | null>(null);
 
-export default function FacebookPanel({ supabase, callFn, refreshWallet }: Props) {
-  // ---- Status & limits ----
-  const [fbConnecting, setFbConnecting] = useState(false);
-  const [fbConnected, setFbConnected] = useState(false);
-  const [canPost, setCanPost] = useState(false);
-  const [changesLeft, setChangesLeft] = useState<number>(2);
+  /* Wallet & Prices (direct Supabase) */
+  const [wallet, setWallet] = React.useState<{
+    balance: number;
+    plan?: string;
+    resets_at?: string;
+  } | null>(null);
+  const [prices, setPrices] = React.useState<Prices>(DEFAULT_PRICES);
 
-const [pageList, setPageList] = useState<PageInfo[]>([]);
-const [pagesById, setPagesById] = useState<Record<string, PageInfo>>({});
-const [lastPostLink, setLastPostLink] = useState<string>('');
-
-  // Pages
-  const [pages, setPages] = useState<string[]>([]);
-  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
-  const [selectedPageName, setSelectedPageName] = useState<string | null>(null);
-
-  // Composer
-  const [postBody, setPostBody] = useState('');
-  const [optPrompt, setOptPrompt] = useState('Tighten the copy and make it scannable for Facebook.');
-  const [tone, setTone] = useState<'neutral'|'friendly'|'persuasive'|'technical'>('friendly');
-  const [length, setLength] = useState<'short'|'medium'|'long'>('medium');
-  const [loadingOptimize, setLoadingOptimize] = useState(false);
-  const [lastDraft, setLastDraft] = useState<Draft>(null);
-
-  // Image
-  const [imageMode, setImageMode] = useState<'upload'|'ai'>('upload');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadPreview, setUploadPreview] = useState('');
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const [imgPrompt, setImgPrompt] = useState('Minimal banner with brand colors, modern, clean.');
-  const [imgSize, setImgSize] = useState<DalleSize>('1792x1024');
-  const [genUrl, setGenUrl] = useState('');
-  const [loadingImage, setLoadingImage] = useState(false);
-
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-
-  const selectedImageUrl = imageMode === 'upload' ? uploadPreview : genUrl;
-  const postEnabled = fbConnected && canPost && !!selectedPageId && postBody.trim().length > 0;
-
-  useEffect(() => { refreshFacebook().catch(()=>{}); }, []); // initial status
-
-  // ---- Status / creds ----
-  async function refreshFacebook() {
-    setError(''); setNotice('');
+  const loadWallet = React.useCallback(async () => {
     try {
-      const data = await callFn('facebook-creds', { method: 'GET' });
-      const used = data?.changes?.used ?? 0;
-      const limit = data?.changes?.limit ?? 2;
-      setChangesLeft(Math.max(0, limit - used));
-
-      setFbConnected(!!data.connected);
-      setCanPost(!!data.can_post);
-      setPages(data.page_ids ?? []);
-      setSelectedPageId(data.selected_page_id ?? null);
-      setSelectedPageName(data.selected_page_name ?? null);
-    } catch (e:any) {
-      setFbConnected(false); setCanPost(false);
-      setError(`Facebook status error: ${e.message || e}`);
+      const supabase = await getSupabase();
+      const { data: user } = await supabase.auth.getUser();
+      if (!user?.user) return setErr("Not signed in");
+      const { data, error } = await supabase
+        .from("credits_wallets")
+        .select("balance, plan, resets_at")
+        .eq("user_id", user.user.id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        setWallet({ balance: 0 });
+      } else {
+        setWallet(data as any);
+      }
+    } catch (e: any) {
+      setErr(e.message || "Wallet error");
     }
-  }
+  }, []);
 
-  async function pollFacebookBounded() {
-    const delays = [700, 1200, 2000, 3000, 5000, 7000, 8000]; // ~28s
-    for (const d of delays) {
-      try {
-        const s = await callFn('facebook-creds', { method:'GET' });
-        const used = s?.changes?.used ?? 0;
-        const limit = s?.changes?.limit ?? 2;
-        setChangesLeft(Math.max(0, limit - used));
+  const loadPrices = React.useCallback(async () => {
+    try {
+      const supabase = await getSupabase();
+      const { data, error } = await supabase
+        .from("credits_prices")
+        .select("feature, price");
+      if (error) {
+        /* table might not exist */ return;
+      }
+      const map: Prices = { ...DEFAULT_PRICES };
+      (data || []).forEach((r: any) => {
+        map[r.feature as keyof Prices] = r.price;
+      });
+      setPrices(map);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
-        if (s.connected) {
-          setFbConnected(true);
-          setCanPost(!!s.can_post);
-          setPages(s.page_ids ?? []);
-          setSelectedPageId(s.selected_page_id ?? null);
-          setSelectedPageName(s.selected_page_name ?? null);
-          if (s.can_post) setNotice('Facebook connected.');
-          return true;
+  React.useEffect(() => {
+    loadWallet();
+    loadPrices();
+  }, [loadWallet, loadPrices]);
+
+  async function spend(feature: keyof Prices, meta: Record<string, any> = {}) {
+    const amount = prices[feature] ?? 1;
+    try {
+      const supabase = await getSupabase();
+      // call RPC; if it doesn't exist, show a helpful error
+      const { data, error } = await supabase.rpc("spend_credit", {
+        p_feature: feature,
+        p_amount: amount,
+        p_meta: meta,
+      });
+      if (error) {
+        if ((error as any).message?.includes("function spend_credit")) {
+          throw new Error(
+            "Missing RPC spend_credit() — please create it in Supabase. (Ask me for the SQL if you want it now.)"
+          );
         }
-      } catch { /* ignore */ }
-      await new Promise(r => setTimeout(r, d));
+        throw error;
+      }
+      await loadWallet();
+      return {
+        ok: true,
+        balance: Array.isArray(data) ? data[0]?.balance ?? null : null,
+      };
+    } catch (e: any) {
+      setErr(e.message || "Credit spend failed");
+      return { ok: false };
     }
-    return false;
   }
+
+  /* Accounts (limit 2) */
+  const [accounts, setAccounts] = React.useState<any[]>([]);
+  const [pageSelected, setPageSelected] = React.useState<{
+    id: string;
+    name?: string;
+  } | null>(null);
+
+  const refreshAccounts = React.useCallback(async () => {
+    try {
+      const supabase = await getSupabase();
+      const { data: user } = await supabase.auth.getUser();
+      if (!user?.user) return;
+      // list accounts
+      const { data: rows, error } = await supabase
+        .from("social_accounts")
+        .select("id, fb_user_id, page_name, page_access_token")
+        .eq("user_id", user.user.id)
+        .eq("provider", "facebook")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setAccounts(rows || []);
+      const p = (rows || []).find((r) => r.page_access_token);
+      setPageSelected(p ? { id: p.fb_user_id, name: p.page_name || "" } : null);
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    refreshAccounts();
+  }, [refreshAccounts]);
+
+  // listen for popup connect message
+  React.useEffect(() => {
+    const h = (e: MessageEvent) => {
+      if (e?.data?.source === "fb_oauth") {
+        if (e.data.status === "ok") {
+          refreshAccounts();
+          loadWallet();
+        } else setErr(e.data.error || "Connect failed");
+      }
+    };
+    window.addEventListener("message", h);
+    return () => window.removeEventListener("message", h);
+  }, [refreshAccounts, loadWallet]);
 
   async function connectFacebook() {
-    setError(''); setNotice(''); setFbConnecting(true);
+    if ((accounts?.length || 0) >= 2)
+      return setErr("Connection limit (2) reached.");
+    const spendRes = await spend("connect", { action: "facebook_connect" });
+    if (!spendRes.ok) return; // error already shown
+    const popup = openPopup("/api/facebook/start", "fb_connect");
+    if (!popup) location.href = "/api/facebook/start";
+  }
+
+  async function disconnectAccount(id: string) {
+    if (!confirm("Disconnect this Facebook account?")) return;
     try {
-      const data = await callFn('facebook-oauth-start', { method: 'GET' });
-      if (typeof data?.changes_left === 'number' && data.changes_left <= 0) {
-        setError('Change limit reached (2).');
-        setFbConnecting(false);
-        return;
-      }
-      window.open(data.url, 'fb_oauth', 'width=600,height=700');
-      const ok = await pollFacebookBounded();
-      if (!ok) setError('Could not confirm Facebook connection. Click “Refresh status” after closing the popup.');
-    } catch (e:any) {
-      const msg = String(e?.message || e);
-      if (msg.includes('CHANGE_LIMIT')) setError('Change limit reached (2).');
-      else setError(`Connect failed: ${msg}`);
+      const supabase = await getSupabase();
+      const { error } = await supabase
+        .from("social_accounts")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+      refreshAccounts();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
+  /* Posts & Comments (Graph stays behind your routes) */
+  const [posts, setPosts] = React.useState<any[]>([]);
+  const [after, setAfter] = React.useState<string | null>(null);
+  const [hasMore, setHasMore] = React.useState(false);
+  const [loadingPosts, setLoadingPosts] = React.useState(false);
+
+  async function loadPosts(reset = true) {
+    try {
+      setLoadingPosts(true);
+      const url = new URL("/api/facebook/posts/list", location.origin);
+      if (!reset && after) url.searchParams.set("after", after);
+      url.searchParams.set("limit", "10");
+      const r = await fetch(url.toString());
+      const j = await r.json();
+      if (!r.ok || j.ok === false)
+        throw new Error(j.error || "Failed to load posts");
+      const newItems = j.data || [];
+      const paging = j.paging || null;
+      setPosts(reset ? newItems : [...posts, ...newItems]);
+      const nextAfter = paging?.cursors?.after || null;
+      setAfter(nextAfter);
+      setHasMore(!!(paging && paging.next && nextAfter));
+    } catch (e: any) {
+      setErr(e.message);
     } finally {
-      setFbConnecting(false);
+      setLoadingPosts(false);
     }
   }
 
-  async function disconnectFacebook() {
-    setError(''); setNotice('');
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [drawerPostId, setDrawerPostId] = React.useState<string | null>(null);
+  const [comments, setComments] = React.useState<any[]>([]);
+  const [commentsLoading, setCommentsLoading] = React.useState(false);
+  const [canModerate, setCanModerate] = React.useState(false);
+  const [replyText, setReplyText] = React.useState<Record<string, string>>({});
+
+  async function openComments(postId: string) {
+    setDrawerOpen(true);
+    setDrawerPostId(postId);
+    setComments([]);
+    setCommentsLoading(true);
     try {
-      await callFn('facebook-disconnect', { method: 'POST' });
-      setFbConnected(false);
-      setCanPost(false);
-      setSelectedPageId(null);
-      setSelectedPageName(null);
-      await refreshFacebook();
-      setNotice('Facebook disconnected.');
-    } catch (e:any) {
-      const msg = String(e.message || e);
-      if (msg.includes('CHANGE_LIMIT')) setError('Change limit reached (2).');
-      else setError(`Disconnect failed: ${msg}`);
+      const r = await fetch(
+        `/api/facebook/comments/list?objectId=${encodeURIComponent(postId)}`
+      );
+      const j = await r.json();
+      if (!r.ok || j.ok === false)
+        throw new Error(j.error || "Comments fetch failed");
+      setComments(j.data || []);
+      setCanModerate(!!j.canModerate);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setCommentsLoading(false);
     }
   }
 
-  async function setDefaultPage(pageId: string, pageName?: string) {
-    setError(''); setNotice('');
+  async function reply(targetId: string) {
+    const text = (replyText[targetId] || "").trim();
+    if (!text) return;
+    const sp = await spend("comment_reply", { targetId });
+    if (!sp.ok) return;
     try {
-      // Small helper edge function; code included below in this message.
-      const res = await callFn('facebook-set-page', {
-        method: 'POST',
-        body: JSON.stringify({ page_id: pageId, page_name: pageName || null })
+      const r = await fetch("/api/facebook/comments/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetId, message: text }),
       });
-      setSelectedPageId(res.selected_page_id || pageId);
-      setSelectedPageName(res.selected_page_name || pageName || null);
-      setCanPost(true);
-      setNotice('Default Page saved.');
-    } catch (e:any) {
-      setError(`Set page failed: ${e.message || e}`);
+      const j = await r.json();
+      if (!r.ok || j.ok === false) throw new Error(j.error || "Reply failed");
+      setReplyText((m) => ({ ...m, [targetId]: "" }));
+      if (drawerPostId) openComments(drawerPostId);
+    } catch (e: any) {
+      setErr(e.message);
     }
   }
 
-  // ---- AI helpers (reuse your existing functions) ----
-  async function optimize() {
-    setLoadingOptimize(true); setError(''); setNotice('');
+  async function hideToggle(commentId: string, nextHidden: boolean) {
+    const sp = await spend("comment_moderate", { commentId, nextHidden });
+    if (!sp.ok) return;
     try {
-      const combined = [
-        'Optimize this Facebook post.',
-        postBody ? `Original:\n${postBody}` : '',
-        optPrompt ? `Instruction:\n${optPrompt}` : '',
-      ].filter(Boolean).join('\n\n');
-
-      const data = await callFn('ai-draft', {
-        method: 'POST',
-        body: JSON.stringify({ prompt: combined, tone, length })
+      const r = await fetch("/api/facebook/comments/hide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commentId, isHidden: nextHidden }),
       });
-
-      if (!data?.ok) throw new Error('AI draft failed');
-      const draft: Draft = data.draft || null;
-      setLastDraft(draft);
-      if (draft?.body) {
-        const tags = (Array.isArray(draft.hashtags) && draft.hashtags.length)
-          ? '\n\n' + draft.hashtags.map((t:string)=>`#${t}`).join(' ')
-          : '';
-        setPostBody((draft.headline ? `${draft.headline}\n\n` : '') + draft.body + tags);
-      }
-      await refreshWallet();
-      setNotice('Content optimized.');
-    } catch (e:any) {
-      setError(`AI optimize error: ${e.message || e}`);
-    } finally { setLoadingOptimize(false); }
+      const j = await r.json();
+      if (!r.ok || j.ok === false)
+        throw new Error(j.error || "Hide/unhide failed");
+      if (drawerPostId) openComments(drawerPostId);
+    } catch (e: any) {
+      setErr(e.message);
+    }
   }
 
-  async function genImage() {
-    setLoadingImage(true); setError(''); setNotice('');
+  async function deleteComment(commentId: string) {
+    if (!confirm("Delete this comment?")) return;
+    const sp = await spend("comment_moderate", { commentId, action: "delete" });
+    if (!sp.ok) return;
     try {
-      const data = await callFn('ai-image', {
-        method: 'POST',
-        body: JSON.stringify({ prompt: imgPrompt, size: imgSize })
+      const r = await fetch("/api/facebook/comments/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: commentId }),
       });
-      if (!data?.ok) throw new Error('AI image failed');
-      setGenUrl(data.image.publicUrl);
-      setImageMode('ai');
-      await refreshWallet();
-      setNotice('Image generated.');
-    } catch (e:any) {
-      setError(`AI image error: ${e.message || e}`);
-    } finally { setLoadingImage(false); }
-  }
-
-  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0] || null;
-    setUploadFile(f);
-    setUploadPreview(f ? URL.createObjectURL(f) : '');
-    setImageMode('upload');
-  }
-
-  async function loadPages() {
-  try {
-    const r = await callFn('facebook-pages', { method: 'GET' });
-    const list: PageInfo[] = r?.pages || [];
-    setPageList(list);
-    const idx: Record<string, PageInfo> = {};
-    list.forEach(p => { idx[p.id] = p; });
-    setPagesById(idx);
-  } catch { /* ignore */ }
-}
-
-useEffect(() => {
-  refreshFacebook().then(() => {
-    loadPages();
-  }).catch(()=>{});
-}, []);
-
-
-  async function uploadLocalToPublic(): Promise<string | undefined> {
-    if (!uploadFile) return undefined;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not signed in');
-    // Reuse existing public bucket
-    const path = `${user.id}/uploads/${Date.now()}-${uploadFile.name}`;
-    const up = await supabase.storage.from('li-assets').upload(path, uploadFile);
-    if (up.error) throw new Error(up.error.message);
-    return supabase.storage.from('li-assets').getPublicUrl(path).data.publicUrl;
-  }
-
-async function publish() {
-  setError(''); setNotice(''); setLastPostLink('');
-  try {
-    if (!fbConnected) throw new Error('Connect Facebook first');
-    if (!canPost) throw new Error('Select a Page to post to');
-    if (!selectedPageId) throw new Error('No Page selected');
-    if (!postBody.trim() && !(imageMode==='upload' ? uploadFile : genUrl)) {
-      throw new Error('Type your post or add an image');
+      const j = await r.json();
+      if (!r.ok || j.ok === false) throw new Error(j.error || "Delete failed");
+      if (drawerPostId) openComments(drawerPostId);
+    } catch (e: any) {
+      setErr(e.message);
     }
-
-    let imageUrl: string | undefined = undefined;
-    if (imageMode === 'upload' && uploadFile) {
-      imageUrl = await uploadLocalToPublic();
-    } else if (imageMode === 'ai' && genUrl) {
-      imageUrl = genUrl;
-    }
-
-    const data = await callFn('facebook-post', {
-      method: 'POST',
-      body: JSON.stringify({
-        message: postBody,
-        page_id: selectedPageId,
-        image_url: imageUrl
-      })
-    });
-
-    if (!data?.ok) throw new Error('Publish failed');
-    await refreshWallet();
-    setNotice('Posted successfully.');
-    if (data.permalink) setLastPostLink(data.permalink);
-  } catch (e:any) {
-    setError(`Post error: ${e.message || e}`);
   }
-}
 
+  /* Profile (Graph stays server-side) */
+  const [profile, setProfile] = React.useState<any | null>(null);
+  async function loadProfile() {
+    try {
+      const r = await fetch("/api/facebook/user/overview");
+      const j = await r.json();
+      if (!r.ok || j.ok === false)
+        throw new Error(j.error || "Overview failed");
+      setProfile(j.data || null);
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
 
-  // ---- UI ----
+  /* Compose (Share & AI) */
+  const [shareUrl, setShareUrl] = React.useState("");
+  const [shareQuote, setShareQuote] = React.useState("");
+  const [draft, setDraft] = React.useState("");
+  const [aiBusy, setAiBusy] = React.useState(false);
+
+  async function shareNow() {
+    if (!APP_ID) return setErr("Missing NEXT_PUBLIC_FACEBOOK_APP_ID");
+    if (!shareUrl) return setErr("Please enter a URL to share");
+    const sp = await spend("share", { href: shareUrl });
+    if (!sp.ok) return;
+    const u = new URL("https://www.facebook.com/dialog/share");
+    u.searchParams.set("app_id", APP_ID);
+    u.searchParams.set("display", "popup");
+    u.searchParams.set("href", shareUrl);
+    if (shareQuote) u.searchParams.set("quote", shareQuote);
+    u.searchParams.set("redirect_uri", `${location.origin}/share-close`);
+    openPopup(u.toString(), "fb_share");
+  }
+
+  async function aiWrite() {
+    const sp = await spend("ai_write", { where: "facebook_compose" });
+    if (!sp.ok) return;
+    try {
+      setAiBusy(true);
+      const r = await fetch("/api/ai/write", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Facebook post",
+          tone: "professional",
+          length: 120,
+          context: draft,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.ok === false) throw new Error(j.error || "AI failed");
+      setDraft(j.text || "");
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────── */
+
   return (
-    <form onSubmit={(e)=>e.preventDefault()} className="grid lg:grid-cols-3 gap-6">
-      <div className="lg:col-span-3 flex items-center justify-between border-b border-gray-800 pb-2 mb-4">
-        {fbConnected ? (
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs px-2 py-1 rounded border border-emerald-500 text-emerald-400">Facebook Connected</span>
-            <span className="text-xs text-gray-400">Changes left: {changesLeft}</span>
-
-            {(pages?.length ?? 0) > 0 && (
-              <>
-                <select
-  className="text-xs bg-transparent border border-gray-700 rounded px-2 py-1"
-  value={selectedPageId ?? ''}
-  onChange={(e)=> {
-    const id = e.target.value;
-    const nm = pagesById[id]?.name || undefined;
-    setDefaultPage(id, nm || undefined);
-  }}
->
-  <option value="" disabled>Select Page…</option>
-  {(pageList.length ? pageList : (pages || [])).map((p:any) => {
-    const id = typeof p === 'string' ? p : p.id;
-    const nm = typeof p === 'string' ? pagesById[p]?.name : p.name;
-    return <option key={id} value={id}>{nm ? `${nm} (${id})` : id}</option>;
-  })}
-</select>
-
-                <button
-                  type="button"
-                  onClick={refreshFacebook}
-                  className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-gray-500 inline-flex items-center gap-1"
-                >
-                  <RefreshCcw className="w-3 h-3"/> Refresh
-                </button>
-                <button
-                  type="button"
-                  onClick={disconnectFacebook}
-                  className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-gray-500 inline-flex items-center gap-1"
-                >
-                  <LogOut className="w-3 h-3"/> Disconnect
-                </button>
-              </>
-            )}
+    <div className="w-full max-w-6xl rounded-2xl border border-slate-800 bg-slate-950 shadow">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4">
+        <div className="flex items-center gap-3">
+          <div className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600/15">
+            <svg viewBox="0 0 24 24" className="h-5 w-5">
+              <path
+                fill="currentColor"
+                d="M22 12.07C22 6.48 17.52 2 11.93 2S1.86 6.48 1.86 12.07c0 5 3.66 9.14 8.44 9.93v-7.03H7.9v-2.9h2.4V9.41c0-2.37 1.42-3.68 3.58-3.68 1.04 0 2.13.19 2.13.19v2.35h-1.2c-1.18 0-1.55.73-1.55 1.49v1.79h2.64l-.42 2.9h-2.22V22c4.78-.79 8.44-4.93 8.44-9.93z"
+              />
+            </svg>
           </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={connectFacebook}
-              disabled={fbConnecting || changesLeft<=0}
-              className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-gray-500 inline-flex items-center gap-2 disabled:opacity-60"
-            >
-              {fbConnecting ? <Loader2 className="w-3 h-3 animate-spin"/> : null}
-              {fbConnecting ? 'Connecting…' : (changesLeft<=0 ? 'Change limit reached' : 'Connect Facebook')}
-            </button>
-            <span className="text-xs text-gray-400">Changes left: {changesLeft}</span>
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-4 lg:col-span-2">
-        <label className="text-sm text-gray-300">Your Facebook Post</label>
-        <textarea
-          className="w-full bg-transparent border border-gray-700 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          rows={8}
-          value={postBody}
-          onChange={(e)=>setPostBody(e.target.value)}
-          placeholder="Type or paste your post here…"
-        />
-
-        <div className="grid md:grid-cols-3 gap-3">
-          <div className="md:col-span-2">
-            <label className="text-xs text-gray-400">Optimization hint (1 credit)</label>
-            <input className="w-full bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
-              value={optPrompt} onChange={e=>setOptPrompt(e.target.value)}
-              placeholder="Tell AI how to improve the copy"/>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <select className="bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
-              value={tone} onChange={e=>setTone(e.target.value as any)}>
-              <option value="neutral">neutral</option>
-              <option value="friendly">friendly</option>
-              <option value="persuasive">persuasive</option>
-              <option value="technical">technical</option>
-            </select>
-            <select className="bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
-              value={length} onChange={e=>setLength(e.target.value as any)}>
-              <option value="short">short</option>
-              <option value="medium">medium</option>
-              <option value="long">long</option>
-            </select>
-          </div>
-        </div>
-
-        <button type="button" onClick={optimize} disabled={loadingOptimize}
-          className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm disabled:opacity-60">
-          {loadingOptimize ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-          {loadingOptimize ? 'Optimizing…' : 'Optimize with AI'}
-        </button>
-
-        {lastDraft && (
-          <div className="border border-gray-800 rounded-lg p-3 space-y-2">
-            <div className="text-xs uppercase tracking-wide text-gray-400">AI Draft (reference)</div>
-            {lastDraft.headline && <div className="font-medium text-white">{lastDraft.headline}</div>}
-            <div className="text-sm whitespace-pre-wrap text-gray-200">{lastDraft.body}</div>
-            {!!lastDraft.hashtags?.length && <div className="text-xs text-gray-400">{lastDraft.hashtags.map(h=>`#${h}`).join(' ')}</div>}
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-6">
-        <div className="border border-gray-800 rounded-lg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-gray-300">Post Image</div>
-            <div className="text-xs text-gray-400">{imageMode==='ai' ? '5 credits' : '0 credits'}</div>
-          </div>
-          <div className="flex gap-2 text-xs">
-            <button type="button" onClick={()=>setImageMode('upload')}
-              className={`px-2 py-1 rounded border ${imageMode==='upload'?'border-emerald-500 text-emerald-400':'border-gray-700 text-gray-400'}`}>Upload</button>
-            <button type="button" onClick={()=>setImageMode('ai')}
-              className={`px-2 py-1 rounded border ${imageMode==='ai'?'border-emerald-500 text-emerald-400':'border-gray-700 text-gray-400'}`}>Generate with AI</button>
-          </div>
-
-          {imageMode==='upload' && (
-            <div className="space-y-2">
-              <input ref={fileRef} type="file" accept="image/*" onChange={onPick} className="hidden"/>
-              <button type="button" onClick={()=>fileRef.current?.click()}
-                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-md text-sm">
-                <UploadIcon className="w-4 h-4"/> Choose image…
-              </button>
-              {uploadPreview && <img src={uploadPreview} alt="upload" className="rounded-lg border border-gray-700" />}
-              {!uploadPreview && <div className="text-xs text-gray-500">Recommended: 1792×1024 (landscape)</div>}
+          <div>
+            <div className="text-sm font-semibold text-slate-100">
+              Facebook (Credits)
             </div>
-          )}
-
-          {imageMode==='ai' && (
-            <div className="space-y-2">
-              <label className="text-xs text-gray-400">Prompt</label>
-              <textarea className="w-full bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
-                rows={3} value={imgPrompt} onChange={e=>setImgPrompt(e.target.value)}/>
-              <label className="text-xs text-gray-400">Size</label>
-              <select className="w-full bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
-                value={imgSize} onChange={e=>setImgSize(e.target.value as DalleSize)}>
-                <option value="1792x1024">1792×1024</option>
-                <option value="1024x1024">1024×1024</option>
-                <option value="1024x1792">1024×1792</option>
-              </select>
-              <button type="button" onClick={genImage} disabled={loadingImage}
-                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm disabled:opacity-60">
-                {loadingImage ? <Loader2 className="w-4 h-4 animate-spin"/> : <ImageIcon className="w-4 h-4"/>}
-                {loadingImage ? 'Generating…' : 'Generate Image'}
-              </button>
-              {genUrl && <img src={genUrl} alt="generated" className="rounded-lg border border-gray-700" />}
+            <div className="text-xs text-slate-400">
+              Connections • Posts • Comments • Profile • Compose
             </div>
-          )}
-        </div>
-
-        <div className="border border-gray-800 rounded-lg p-4 space-y-3">
-          <div className="text-sm text-gray-300">Draft Preview</div>
-          {selectedImageUrl && <img src={selectedImageUrl} alt="preview" className="rounded-lg border border-gray-700" />}
-          <div className="text-sm whitespace-pre-wrap text-gray-200">{postBody || 'Your content will appear here…'}</div>
-        </div>
-
-        <div className="border border-gray-800 rounded-lg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-gray-300">Final</div>
-            <button type="button" onClick={refreshFacebook}
-              className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-gray-500 inline-flex items-center gap-1">
-              <RefreshCcw className="w-3 h-3"/> Refresh status
-            </button>
           </div>
-          <div className="text-xs text-gray-500">Review and post.</div>
-          <div className="flex gap-2">
-            <button type="button" onClick={publish}
-              disabled={!postEnabled}
-              className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm disabled:opacity-60">
-              <Rocket className="w-4 h-4"/> {postEnabled ? 'Post to Facebook' : (fbConnected ? 'Select a Page & type a post' : 'Connect Facebook')}
-            </button>
-          </div>
-          {fbConnected && !canPost && (
-            <p className="text-xs text-amber-400">
-              Connected. Select a Page to enable posting.
-            </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {wallet ? (
+            <>
+              <Pill tone={wallet.balance > 0 ? "green" : "rose"}>
+                Credits: <b className="ml-1">{wallet.balance}</b>
+              </Pill>
+              {wallet.plan && <Pill tone="blue">{wallet.plan}</Pill>}
+              {wallet.resets_at && (
+                <span className="text-xs text-slate-400">
+                  Resets {new Date(wallet.resets_at).toLocaleDateString()}
+                </span>
+              )}
+            </>
+          ) : (
+            <Pill>Loading credits…</Pill>
           )}
         </div>
       </div>
-{lastPostLink && (
-  <a href={lastPostLink} target="_blank" rel="noreferrer"
-     className="inline-block text-xs text-emerald-400 underline">
-    View post on Facebook
-  </a>
-)}
 
-      {(error || notice) && (
-        <div className="lg:col-span-3">
-          {error && <p className="text-sm text-red-400" role="alert">{error}</p>}
-          {notice && <p className="text-sm text-emerald-400">{notice}</p>}
+      <div className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/90 px-3 py-2 backdrop-blur">
+        <div className="flex flex-wrap items-center gap-2">
+          <TabBtn
+            active={tab === "accounts"}
+            onClick={() => setTab("accounts")}
+          >
+            Accounts
+          </TabBtn>
+          <TabBtn active={tab === "posts"} onClick={() => setTab("posts")}>
+            Posts
+          </TabBtn>
+          <TabBtn active={tab === "profile"} onClick={() => setTab("profile")}>
+            Profile
+          </TabBtn>
+          <TabBtn active={tab === "compose"} onClick={() => setTab("compose")}>
+            Compose
+          </TabBtn>
+        </div>
+      </div>
+
+      {!!err && (
+        <div className="mx-4 mt-3 rounded-lg border border-rose-700/40 bg-rose-600/10 px-3 py-2 text-sm text-rose-300">
+          {err}
         </div>
       )}
-    </form>
+
+      {/* ACCOUNTS */}
+      {tab === "accounts" && (
+        <div className="p-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/40">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-200">
+                Connections
+              </div>
+              <div className="flex items-center gap-2">
+                <Pill>Limit: 2</Pill>
+                <Pill tone="blue">connect: {prices.connect ?? "—"}</Pill>
+                <button
+                  className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  onClick={connectFacebook}
+                  disabled={(accounts?.length || 0) >= 2}
+                >
+                  {(accounts?.length || 0) >= 2
+                    ? "Limit reached"
+                    : "Connect Facebook"}
+                </button>
+              </div>
+            </header>
+            <div className="grid gap-2 p-4 md:grid-cols-2">
+              {(accounts || []).map((a: any) => (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/60 p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm text-slate-100">
+                      {a.page_name
+                        ? `${a.page_name} (Page)`
+                        : a.fb_user_id || "Facebook user"}
+                    </div>
+                    <div className="truncate text-[11px] text-slate-500">
+                      {a.id}
+                    </div>
+                  </div>
+                  <button
+                    className="rounded bg-rose-600 px-2 py-1 text-xs text-white"
+                    onClick={() => disconnectAccount(a.id)}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              ))}
+              {(!accounts || accounts.length === 0) && (
+                <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-400">
+                  No accounts connected yet.
+                </div>
+              )}
+            </div>
+            <div className="border-t border-slate-800 p-3 text-xs text-slate-400">
+              {pageSelected ? (
+                <>
+                  Moderating as Page:{" "}
+                  <b className="text-slate-200">
+                    {pageSelected.name || pageSelected.id}
+                  </b>
+                </>
+              ) : (
+                <>Select a Page in Profile to enable comment moderation.</>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POSTS + COMMENTS */}
+      {tab === "posts" && (
+        <div className="p-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/40">
+            <header className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-200">
+                Recent posts
+              </div>
+              <div className="flex items-center gap-2">
+                <Pill>reply: {prices.comment_reply ?? "—"}</Pill>
+                <Pill>moderate: {prices.comment_moderate ?? "—"}</Pill>
+                <button
+                  className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white"
+                  onClick={() => loadPosts(true)}
+                >
+                  {loadingPosts ? "Loading…" : "Refresh"}
+                </button>
+              </div>
+            </header>
+            <div className="grid grid-cols-1 gap-2 p-3 md:grid-cols-2">
+              {posts.map((p) => {
+                const created = new Date(p.created_time).toLocaleString();
+                const link = p.permalink_url;
+                const att = p.attachments?.data?.[0];
+                const img =
+                  att?.media?.image?.src || att?.media_url || att?.media?.src;
+                return (
+                  <article
+                    key={p.id}
+                    className="rounded-lg border border-slate-800 bg-slate-900/60 p-3"
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div className="text-xs text-slate-400">{created}</div>
+                      <div className="truncate text-[11px] text-slate-500">
+                        {p.id}
+                      </div>
+                    </div>
+                    {p.message && (
+                      <div className="mt-1 line-clamp-5 text-sm text-slate-100">
+                        {p.message}
+                      </div>
+                    )}
+                    {img && (
+                      <div className="mt-2 overflow-hidden rounded-md">
+                        <img
+                          src={img}
+                          alt=""
+                          className="max-h-40 w-full object-cover"
+                        />
+                      </div>
+                    )}
+                    <div className="mt-2 flex items-center gap-2">
+                      {link && (
+                        <>
+                          <a
+                            className="rounded bg-slate-700 px-2 py-1 text-xs text-blue-200"
+                            target="_blank"
+                            href={link}
+                          >
+                            Open
+                          </a>
+                          <button
+                            className="rounded bg-slate-700 px-2 py-1 text-xs text-slate-200"
+                            onClick={() => copy(link)}
+                          >
+                            Copy
+                          </button>
+                        </>
+                      )}
+                      <button
+                        className="rounded bg-indigo-600 px-2 py-1 text-xs text-white"
+                        onClick={() => openComments(p.id)}
+                      >
+                        Comments
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+              {posts.length === 0 && (
+                <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-400">
+                  No posts loaded yet.
+                </div>
+              )}
+            </div>
+            {hasMore && (
+              <div className="border-t border-slate-800 p-3 text-center">
+                <button
+                  className="rounded-lg bg-slate-700 px-3 py-2 text-sm text-slate-100"
+                  onClick={() => loadPosts(false)}
+                >
+                  Load more
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Comments Drawer */}
+          {drawerOpen && (
+            <div className="fixed inset-0 z-50">
+              <div
+                className="absolute inset-0 bg-black/50"
+                onClick={() => setDrawerOpen(false)}
+              />
+              <div className="absolute right-0 top-0 h-full w-full max-w-xl overflow-auto border-l border-slate-800 bg-slate-950">
+                <div className="sticky top-0 flex items-center justify-between border-b border-slate-800 bg-slate-950 px-4 py-3">
+                  <div className="text-sm font-semibold text-slate-100">
+                    Comments
+                  </div>
+                  <button
+                    className="rounded bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                    onClick={() => setDrawerOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="p-4">
+                  {commentsLoading && (
+                    <div className="rounded border border-slate-800 p-3 text-sm text-slate-300">
+                      Loading…
+                    </div>
+                  )}
+                  {!commentsLoading && comments.length === 0 && (
+                    <div className="rounded border border-dashed border-slate-800 p-6 text-center text-sm text-slate-400">
+                      No comments yet.
+                    </div>
+                  )}
+                  <div className="grid gap-3">
+                    {comments.map((c: any) => (
+                      <div
+                        key={c.id}
+                        className="rounded border border-slate-800 bg-slate-900/60 p-3"
+                      >
+                        <div className="flex items-baseline justify-between">
+                          <div className="text-sm text-slate-200">
+                            <b>{c.from?.name || "Unknown"}</b>
+                            <span className="ml-2 text-xs text-slate-500">
+                              {new Date(c.created_time).toLocaleString()}
+                            </span>
+                          </div>
+                          {c.is_hidden && <Pill>Hidden</Pill>}
+                        </div>
+                        {c.message && (
+                          <div className="mt-1 whitespace-pre-wrap text-sm text-slate-100">
+                            {c.message}
+                          </div>
+                        )}
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <a
+                            className="text-xs text-blue-300 underline"
+                            href={c.permalink_url}
+                            target="_blank"
+                          >
+                            Open
+                          </a>
+                          {canModerate && (
+                            <>
+                              <button
+                                className="rounded bg-slate-700 px-2 py-1 text-xs text-slate-100"
+                                onClick={() => hideToggle(c.id, !c.is_hidden)}
+                              >
+                                {c.is_hidden ? "Unhide" : "Hide"}
+                              </button>
+                              <button
+                                className="rounded bg-rose-600 px-2 py-1 text-xs text-white"
+                                onClick={() => deleteComment(c.id)}
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {canModerate && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              className="min-w-0 flex-1 rounded bg-slate-800 px-2 py-1 text-xs text-slate-100"
+                              placeholder="Write a reply…"
+                              value={replyText[c.id] || ""}
+                              onChange={(e) =>
+                                setReplyText((m) => ({
+                                  ...m,
+                                  [c.id]: e.target.value,
+                                }))
+                              }
+                            />
+                            <button
+                              className="rounded bg-indigo-600 px-2 py-1 text-xs text-white"
+                              onClick={() => reply(c.id)}
+                            >
+                              Reply
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PROFILE */}
+      {tab === "profile" && (
+        <div className="p-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/40">
+            <header className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-200">
+                Profile
+              </div>
+              <button
+                className="rounded bg-slate-700 px-3 py-2 text-sm text-slate-100"
+                onClick={loadProfile}
+              >
+                Refresh
+              </button>
+            </header>
+            {profile ? (
+              <div className="grid grid-cols-1 gap-2 p-4 md:grid-cols-2">
+                <div>
+                  <b>Name:</b> {profile.name}{" "}
+                  <span className="text-slate-500">({profile.id})</span>
+                </div>
+                {profile.email && (
+                  <div>
+                    <b>Email:</b> {profile.email}
+                  </div>
+                )}
+                {profile.link && (
+                  <div className="truncate">
+                    <b>Profile:</b>{" "}
+                    <a
+                      className="text-blue-400 underline"
+                      href={profile.link}
+                      target="_blank"
+                    >
+                      {profile.link}
+                    </a>
+                  </div>
+                )}
+                {profile.location && (
+                  <div>
+                    <b>Location:</b> {profile.location}
+                  </div>
+                )}
+                {profile.hometown && (
+                  <div>
+                    <b>Hometown:</b> {profile.hometown}
+                  </div>
+                )}
+                {profile.gender && (
+                  <div>
+                    <b>Gender:</b> {profile.gender}
+                  </div>
+                )}
+                {profile.birthday && (
+                  <div>
+                    <b>Date of Birth:</b> {profile.birthday}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-4 text-sm text-slate-400">
+                Click Refresh to load your profile.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* COMPOSE */}
+      {tab === "compose" && (
+        <div className="p-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/40">
+            <header className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-200">
+                Share & AI writer
+              </div>
+              <div className="flex items-center gap-2">
+                <Pill>share: {prices.share ?? "—"}</Pill>
+                <Pill>ai_write: {prices.ai_write ?? "—"}</Pill>
+              </div>
+            </header>
+            <div className="grid gap-3 p-4">
+              <input
+                className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                placeholder="https://page-to-share"
+                value={shareUrl}
+                onChange={(e) => setShareUrl(e.target.value)}
+              />
+              <input
+                className="rounded bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                placeholder="Optional quote…"
+                value={shareQuote}
+                onChange={(e) => setShareQuote(e.target.value)}
+              />
+              <button
+                className="w-fit rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white"
+                onClick={shareNow}
+              >
+                Open Facebook Share
+              </button>
+              <textarea
+                className="min-h-28 rounded bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                placeholder="Brief for AI…"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+              <button
+                className="w-fit rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                disabled={aiBusy}
+                onClick={aiWrite}
+              >
+                {aiBusy ? "Generating…" : "Write with AI"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="border-t border-slate-800 p-3 text-center text-[11px] text-slate-500">
+        Credits are deducted via Supabase RPC; ensure RLS and the function
+        exist. Facebook Graph calls remain server-side.
+      </div>
+    </div>
   );
 }

@@ -1,8 +1,8 @@
 // app/campaigns/page.tsx
 
 "use client";
-export const dynamic = 'force-dynamic'
-import { useEffect, useState } from "react";
+export const dynamic = "force-dynamic";
+import { useEffect, useMemo, useState } from "react";
 import AuthGuard from "@/components/AuthGuard";
 import SectionHeader from "@/components/SectionHeader";
 import Table from "@/components/Table";
@@ -16,46 +16,102 @@ import {
   changesLeft,
   type EmailIdentityRow,
 } from "@/lib/sender";
-import { Plus, Filter, Mail, Info, RefreshCcw, ShieldCheck } from "lucide-react";
+import {
+  Plus,
+  Filter,
+  Mail,
+  Info,
+  RefreshCcw,
+  ShieldCheck,
+  Eye,
+  MousePointerClick,
+  BarChart3,
+  Search,
+  X,
+  AlertTriangle,
+  CheckCircle2,
+} from "lucide-react";
 
+// ---------------- Types ----------------
 type CampaignRow = { id: string; name: string; status: string; created_at: string };
-type SimpleMetric = { campaign_id: string; recipients: number; queued: number };
 type RecipientRecord = { contact_id: string; contact_name: string | null; email: string };
 type SelectionMode = "all" | "filtered" | "selected";
+
+// Per-campaign aggregate used for the main table
+interface CampaignMetric {
+  campaign_id: string;
+  recipients: number; // total
+  queued: number; // still queued
+  delivered: number;
+  bounced: number; // includes complained
+  opened_unique: number; // recipients with opened_at
+  clicks_total: number; // sum(clicks_count)
+  opens_total: number; // sum(opens_count)
+}
+
+// For tracking modal
+interface RecipientTrackRow {
+  id: string;
+  campaign_id: string;
+  contact_id: string | null;
+  contact_name: string | null;
+  email: string;
+  status: string;
+  message_id: string | null;
+  sent_at: string | null;
+  opened_at: string | null;
+  clicked_at: string | null;
+  last_event_at: string | null;
+  opens_count: number;
+  clicks_count: number;
+}
+
+type TrackFilter =
+  | "all"
+  | "delivered"
+  | "opened"
+  | "clicked"
+  | "bounced"
+  | "complained"
+  | "not_opened";
 
 const CHANGE_LIMIT = 2;
 
 export default function CampaignsPage() {
   const supabase = useSupabase();
 
-  // page
+  // ------------- page state -------------
   const [showModal, setShowModal] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [banner, setBanner] = useState<null | { kind: "success" | "error" | "info" | "warn"; msg: string }>(null);
+  const [banner, setBanner] = useState<
+    null | { kind: "success" | "error" | "info" | "warn"; msg: string }
+  >(null);
 
-  // sender
+  // ------------- sender -------------
   const [fromEmail, setFromEmail] = useState("");
   const [identityId, setIdentityId] = useState<string | null>(null);
-  const [verStatus, setVerStatus] = useState<"idle" | "pending" | "verified" | "failed" | "error">("idle");
+  const [verStatus, setVerStatus] = useState<
+    "idle" | "pending" | "verified" | "failed" | "error"
+  >("idle");
   const [mySender, setMySender] = useState<EmailIdentityRow | null>(null);
   const latestStatus: "idle" | "pending" | "verified" | "failed" | "error" =
-    verStatus !== "idle" ? verStatus : (mySender?.status as any) ?? "idle";
+    verStatus !== "idle" ? verStatus : ((mySender?.status as any) ?? "idle");
   const isVerified = latestStatus === "verified";
   const left = changesLeft(mySender, CHANGE_LIMIT);
   const [editingSender, setEditingSender] = useState(false);
 
-  // campaigns
+  // ------------- campaigns + metrics -------------
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
-  const [campMetrics, setCampMetrics] = useState<Record<string, SimpleMetric>>({});
+  const [campMetrics, setCampMetrics] = useState<Record<string, CampaignMetric>>({});
   const [campaignName, setCampaignName] = useState("");
   const [subject, setSubject] = useState("");
   const [content, setContent] = useState("");
 
-  // credits + test send
+  // ------------- credits + test send -------------
   const [availableCredits, setAvailableCredits] = useState<number | null>(null);
   const [testTo, setTestTo] = useState("");
 
-  // recipients (no company/title facets — only search + selection)
+  // ------------- recipients picker (create flow) -------------
   const [showRecipients, setShowRecipients] = useState(false);
   const [recLoading, setRecLoading] = useState(false);
   const [allUnlocked, setAllUnlocked] = useState<RecipientRecord[]>([]);
@@ -66,13 +122,34 @@ export default function CampaignsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filteredCount, setFilteredCount] = useState<number>(0);
 
-  // derived
+  // ------------- tracking modal state -------------
+  const [showTrack, setShowTrack] = useState(false);
+  const [trackLoading, setTrackLoading] = useState(false);
+  const [trackCampaign, setTrackCampaign] = useState<CampaignRow | null>(null);
+  const [trackRows, setTrackRows] = useState<RecipientTrackRow[]>([]);
+  const [trackFilter, setTrackFilter] = useState<TrackFilter>("all");
+  const [trackSearch, setTrackSearch] = useState("");
+
+  // derived (create flow)
   const recipientsToSend =
-    mode === "selected" ? selectedIds.size : mode === "filtered" ? filteredCount : allUnlocked.length;
+    mode === "selected"
+      ? selectedIds.size
+      : mode === "filtered"
+      ? filteredCount
+      : allUnlocked.length;
   const canAfford = (availableCredits ?? 0) >= recipientsToSend;
 
-  // headers / table (Sent only)
-  const headers = ["Campaign Name", "Status", "Sent"];
+  // ------------- table headers -------------
+  const headers = [
+    "Campaign Name",
+    "Status",
+    "Sent",
+    "Delivered",
+    "Opens",
+    "Clicks",
+    "Bounced",
+    "Details",
+  ];
 
   // ---- lifecycle ----
   useEffect(() => {
@@ -91,7 +168,7 @@ export default function CampaignsPage() {
     }
   }, [showModal]);
 
-  // metrics polling (Sent only)
+  // metrics polling (now includes delivered/opens/clicks/bounced)
   useEffect(() => {
     if (!campaigns.length) return;
     void refreshMetrics();
@@ -99,7 +176,7 @@ export default function CampaignsPage() {
     return () => clearInterval(t);
   }, [campaigns]);
 
-  // recipients load (NO title/company)
+  // recipients load for picker
   useEffect(() => {
     if (!showModal || !showRecipients) return;
     (async () => {
@@ -130,7 +207,7 @@ export default function CampaignsPage() {
     })();
   }, [showModal, showRecipients, supabase]);
 
-  // apply search filter locally
+  // apply search filter locally (picker)
   useEffect(() => {
     if (!showRecipients) return;
     const q = recSearch.trim().toLowerCase();
@@ -153,7 +230,9 @@ export default function CampaignsPage() {
       setMySender(row);
       if (prefill && row?.email) setFromEmail(row.email);
       if (row?.status) setVerStatus(row.status as any);
-    } catch {/* no-op */}
+    } catch {
+      /* no-op */
+    }
   }
 
   async function refreshCredits() {
@@ -161,7 +240,6 @@ export default function CampaignsPage() {
     const uid = session?.user?.id;
     if (!uid) return setAvailableCredits(0);
 
-    // Use wallet view for accurate live balance
     const { data, error } = await supabase
       .from("wallet")
       .select("balance")
@@ -186,24 +264,40 @@ export default function CampaignsPage() {
 
     const { data, error } = await supabase
       .from("campaign_recipients")
-      .select("campaign_id,status")
+      .select("campaign_id,status,opens_count,clicks_count,opened_at")
       .in("campaign_id", ids);
 
     if (error) return;
 
-    const agg: Record<string, SimpleMetric> = {};
-    campaigns.forEach((c) => (agg[c.id] = { campaign_id: c.id, recipients: 0, queued: 0 }));
+    const agg: Record<string, CampaignMetric> = {};
+    campaigns.forEach((c) =>
+      (agg[c.id] = {
+        campaign_id: c.id,
+        recipients: 0,
+        queued: 0,
+        delivered: 0,
+        bounced: 0,
+        opened_unique: 0,
+        clicks_total: 0,
+        opens_total: 0,
+      })
+    );
 
     (data ?? []).forEach((r: any) => {
       const a = agg[r.campaign_id];
       a.recipients++;
       if (r.status === "queued") a.queued++;
+      if (r.status === "delivered") a.delivered++;
+      if (r.status === "bounced" || r.status === "complained") a.bounced++;
+      a.opens_total += r.opens_count ?? 0;
+      a.clicks_total += r.clicks_count ?? 0;
+      if (r.opened_at) a.opened_unique++;
     });
 
     setCampMetrics(agg);
   }
 
-  // ---- actions ----
+  // ------------- actions -------------
   async function handleStartVerify() {
     if (!fromEmail) return;
 
@@ -229,7 +323,8 @@ export default function CampaignsPage() {
       await refreshMySender();
       setBanner({ kind: "success", msg: "Verification email sent. Check your inbox to confirm." });
     } catch (e: any) {
-      const msg = e?.json?.error || e?.message || "Could not start verification. Please try again later.";
+      const msg =
+        e?.json?.error || e?.message || "Could not start verification. Please try again later.";
       setVerStatus("error");
       setBanner({ kind: "error", msg });
     } finally {
@@ -362,40 +457,168 @@ export default function CampaignsPage() {
     }
   }
 
-  // ---- render helpers ----
+  // ------------- tracking modal helpers -------------
+  async function openTracking(c: CampaignRow) {
+    setTrackCampaign(c);
+    setShowTrack(true);
+    setTrackSearch("");
+    setTrackFilter("all");
+    await loadTracking(c.id);
+  }
+
+  async function loadTracking(campaignId: string) {
+    setTrackLoading(true);
+    try {
+      // base recipient rows
+      const { data: recs, error } = await supabase
+        .from("campaign_recipients")
+        .select(
+          "id,campaign_id,contact_id,email,status,message_id,sent_at,opened_at,clicked_at,last_event_at,opens_count,clicks_count"
+        )
+        .eq("campaign_id", campaignId)
+        .order("sent_at", { ascending: false });
+      if (error) throw error;
+
+      const rows: RecipientTrackRow[] = (recs as any[]).map((r) => ({
+        id: r.id,
+        campaign_id: r.campaign_id,
+        contact_id: r.contact_id ?? null,
+        contact_name: null, // fill in below from unlocked view
+        email: r.email,
+        status: r.status,
+        message_id: r.message_id ?? null,
+        sent_at: r.sent_at,
+        opened_at: r.opened_at,
+        clicked_at: r.clicked_at,
+        last_event_at: r.last_event_at,
+        opens_count: r.opens_count ?? 0,
+        clicks_count: r.clicks_count ?? 0,
+      }));
+
+      // attempt to enrich names from unlocked_contacts_v (best effort)
+      const ids = Array.from(new Set(rows.map((r) => r.contact_id).filter(Boolean))) as string[];
+      if (ids.length) {
+        const { data: nameRows } = await supabase
+          .from("unlocked_contacts_v")
+          .select("contact_id,contact_name")
+          .in("contact_id", ids);
+        const map = new Map((nameRows ?? []).map((n: any) => [n.contact_id, n.contact_name]));
+        rows.forEach((r) => {
+          if (r.contact_id && map.has(r.contact_id)) r.contact_name = map.get(r.contact_id) || null;
+        });
+      }
+
+      setTrackRows(rows);
+    } catch (e: any) {
+      console.error("loadTracking error", e);
+      setBanner({ kind: "error", msg: e?.message || "Failed to load tracking data" });
+    } finally {
+      setTrackLoading(false);
+    }
+  }
+
+  const trackStats = useMemo(() => {
+    const total = trackRows.length;
+    let delivered = 0,
+      bounced = 0,
+      complained = 0,
+      openedUnique = 0,
+      opens = 0,
+      clicks = 0;
+    trackRows.forEach((r) => {
+      if (r.status === "delivered") delivered++;
+      if (r.status === "bounced") bounced++;
+      if (r.status === "complained") complained++;
+      if (r.opened_at) openedUnique++;
+      opens += r.opens_count || 0;
+      clicks += r.clicks_count || 0;
+    });
+    return { total, delivered, bounced, complained, openedUnique, opens, clicks };
+  }, [trackRows]);
+
+  const filteredTrackRows = useMemo(() => {
+    const q = trackSearch.trim().toLowerCase();
+    return trackRows.filter((r) => {
+      // filter
+      const matchesFilter =
+        trackFilter === "all" ||
+        (trackFilter === "delivered" && r.status === "delivered") ||
+        (trackFilter === "opened" && !!r.opened_at) ||
+        (trackFilter === "clicked" && !!r.clicked_at) ||
+        (trackFilter === "bounced" && r.status === "bounced") ||
+        (trackFilter === "complained" && r.status === "complained") ||
+        (trackFilter === "not_opened" && !r.opened_at && (r.status === "sent" || r.status === "delivered"));
+
+      if (!matchesFilter) return false;
+
+      if (!q) return true;
+      const name = (r.contact_name || "").toLowerCase();
+      const email = (r.email || "").toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+  }, [trackRows, trackFilter, trackSearch]);
+
+  // ------------- render helpers -------------
   const totals = Object.values(campMetrics).reduce(
     (acc, m) => {
-      acc.sent += m.recipients - m.queued;
+      acc.sent += Math.max(0, m.recipients - m.queued);
       acc.totalRecipients += m.recipients;
+      acc.delivered += m.delivered;
+      acc.opens += m.opens_total;
+      acc.clicks += m.clicks_total;
+      acc.bounced += m.bounced;
       return acc;
     },
-    { sent: 0, totalRecipients: 0 }
+    { sent: 0, totalRecipients: 0, delivered: 0, opens: 0, clicks: 0, bounced: 0 }
   );
   const activeCount = campaigns.filter((c) => c.status === "sending").length;
 
   const tableData = campaigns.map((c) => {
-    const m = campMetrics[c.id] ?? { recipients: 0, queued: 0 };
+    const m =
+      campMetrics[c.id] ?? {
+        recipients: 0,
+        queued: 0,
+        delivered: 0,
+        bounced: 0,
+        opened_unique: 0,
+        clicks_total: 0,
+        opens_total: 0,
+      };
     const sentCount = Math.max(0, m.recipients - m.queued);
     return {
       name: c.name,
       status: (
         <span
           className={`px-2 py-1 rounded-full text-xs font-medium ${
-            c.status === "sending" ? "bg-emerald-600/20 text-emerald-400" : "bg-gray-600/20 text-gray-300"
+            c.status === "sending"
+              ? "bg-emerald-600/20 text-emerald-400"
+              : "bg-gray-600/20 text-gray-300"
           }`}
         >
           {c.status}
         </span>
       ),
       sent: sentCount.toLocaleString("en-US"),
+      delivered: m.delivered.toLocaleString("en-US"),
+      opens: m.opens_total.toLocaleString("en-US"),
+      clicks: m.clicks_total.toLocaleString("en-US"),
+      bounced: m.bounced.toLocaleString("en-US"),
+      details: (
+        <button
+          onClick={() => openTracking(c)}
+          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700 text-gray-200"
+        >
+          <BarChart3 className="w-3.5 h-3.5" /> View
+        </button>
+      ),
     };
   });
 
-  // ---- ui ----
+  // ------------- render -------------
   return (
     <AuthGuard>
       <div className="space-y-6">
-        <SectionHeader title="Email Campaigns" description="Create and send your campaigns">
+        <SectionHeader title="Email Campaigns" description="Create, send, and track your campaigns">
           <WalletBadge />
           <button
             onClick={() => alert("Campaign filters functionality")}
@@ -413,16 +636,18 @@ export default function CampaignsPage() {
           </button>
         </SectionHeader>
 
-        {/* Stats — Sent only */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <StatCard title="Active Campaigns" value={String(activeCount)} icon={Mail} />
+        {/* Stat cards */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <StatCard title="Active" value={String(activeCount)} icon={Mail} />
           <StatCard title="Total Sent" value={totals.sent.toLocaleString("en-US")} icon={Mail} />
-          <StatCard title="Unlocked Contacts" value={unlockedCount.toLocaleString("en-US")} icon={Mail} />
+          <StatCard title="Delivered" value={totals.delivered.toLocaleString("en-US")} icon={Mail} />
+          <StatCard title="Opens" value={totals.opens.toLocaleString("en-US")} icon={Eye} />
+          <StatCard title="Clicks" value={totals.clicks.toLocaleString("en-US")} icon={MousePointerClick} />
         </div>
 
         <Table headers={headers} data={tableData} />
 
-        {/* Modal */}
+        {/* ---------------- Create Campaign Modal ---------------- */}
         {showModal && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
             <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-4xl">
@@ -461,10 +686,12 @@ export default function CampaignsPage() {
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div>
                           <p className="text-sm text-white break-all">{mySender.email}</p>
-                          {mySender.status !== "verified" && <p className="text-xs text-amber-300">{mySender.status}</p>}
+                          {mySender.status !== "verified" && (
+                            <p className="text-xs text-amber-300">{mySender.status}</p>
+                          )}
                         </div>
 
-                        {/* One working test-mail block (uses wallet balance) */}
+                        {/* Test mail */}
                         {isVerified && (
                           <div className="mt-4 p-4 border border-gray-700 rounded-xl bg-gray-900/40">
                             <div className="flex items-center justify-between mb-3">
@@ -495,7 +722,9 @@ export default function CampaignsPage() {
                               </button>
                             </div>
                             {(availableCredits ?? 0) < 1 && (
-                              <p className="text-xs text-amber-300 mt-2">You don’t have enough credits to send a test.</p>
+                              <p className="text-xs text-amber-300 mt-2">
+                                You don’t have enough credits to send a test.
+                              </p>
                             )}
                           </div>
                         )}
@@ -520,7 +749,8 @@ export default function CampaignsPage() {
                           />
                           {mySender && (
                             <p className="text-xs text-gray-400">
-                              You can change your sender <strong>{left}</strong> more {left === 1 ? "time" : "times"} (max {CHANGE_LIMIT}).
+                              You can change your sender <strong>{left}</strong> more {left === 1 ? "time" : "times"}
+                              (max {CHANGE_LIMIT}).
                             </p>
                           )}
                         </div>
@@ -554,7 +784,7 @@ export default function CampaignsPage() {
                       <div className="mt-3 flex items-center gap-2 text-sm">
                         <span className="text-gray-400">Status:</span>
                         <span
-                          className={`${
+                          className={`$${
                             latestStatus === "verified"
                               ? "text-emerald-400"
                               : latestStatus === "failed" || latestStatus === "error"
@@ -566,7 +796,9 @@ export default function CampaignsPage() {
                         >
                           {latestStatus}
                         </span>
-                        {latestStatus === "verified" && <ShieldCheck className="w-4 h-4 text-emerald-400" />}
+                        {latestStatus === "verified" && (
+                          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        )}
                       </div>
                     </>
                   )}
@@ -598,16 +830,30 @@ export default function CampaignsPage() {
                             <input type="radio" checked={mode === "all"} onChange={() => setMode("all")} /> All unlocked
                           </label>
                           <label className="flex items-center gap-1">
-                            <input type="radio" checked={mode === "filtered"} onChange={() => setMode("filtered")} /> Filtered
+                            <input
+                              type="radio"
+                              checked={mode === "filtered"}
+                              onChange={() => setMode("filtered")}
+                            />
+                            Filtered
                           </label>
                           <label className="flex items-center gap-1">
-                            <input type="radio" checked={mode === "selected"} onChange={() => setMode("selected")} /> Selected
+                            <input
+                              type="radio"
+                              checked={mode === "selected"}
+                              onChange={() => setMode("selected")}
+                            />
+                            Selected
                           </label>
                         </div>
                       </div>
                       <div className="text-sm">
-                        <div>Credits available: <b>{availableCredits ?? "—"}</b></div>
-                        <div className="mt-1 text-gray-300">Recipients to send: <b>{recipientsToSend}</b></div>
+                        <div>
+                          Credits available: <b>{availableCredits ?? "—"}</b>
+                        </div>
+                        <div className="mt-1 text-gray-300">
+                          Recipients to send: <b>{recipientsToSend}</b>
+                        </div>
                         <div className="text-gray-300">Cost: <b>{recipientsToSend}</b> credits (1/contact)</div>
                       </div>
                     </div>
@@ -649,7 +895,10 @@ export default function CampaignsPage() {
                           ) : (
                             <ul className="divide-y divide-gray-700">
                               {visible.map((r) => (
-                                <li key={r.contact_id} className="px-3 py-2 text-sm grid grid-cols-[auto_1fr_auto] gap-3 items-center">
+                                <li
+                                  key={r.contact_id}
+                                  className="px-3 py-2 text-sm grid grid-cols-[auto_1fr_auto] gap-3 items-center"
+                                >
                                   <input
                                     type="checkbox"
                                     checked={selectedIds.has(r.contact_id)}
@@ -674,7 +923,9 @@ export default function CampaignsPage() {
                         </div>
                         {visible.length > 0 && (
                           <div className="mt-2 text-[11px] text-gray-500">
-                            Showing up to 500 rows. Full filtered total: {filteredCount}. Unlocked total (deduped): {allUnlocked.length}.
+                            Showing up to 500 rows. Full filtered total: {filteredCount}. Unlocked total (deduped): {
+                              allUnlocked.length
+                            }.
                           </div>
                         )}
                       </div>
@@ -742,7 +993,9 @@ export default function CampaignsPage() {
                   onClick={createAndSend}
                   disabled={!canAfford || busy}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    !canAfford || busy ? "bg-gray-700 text-gray-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    !canAfford || busy
+                      ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white"
                   }`}
                 >
                   {canAfford ? "Create & Send Now" : "Insufficient Credits"}
@@ -751,7 +1004,193 @@ export default function CampaignsPage() {
             </div>
           </div>
         )}
+
+        {/* ---------------- Tracking Modal ---------------- */}
+        {showTrack && trackCampaign && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-6xl">
+              <div className="p-5 border-b border-gray-700 flex items-center justify-between sticky top-0 bg-gray-800 z-10 rounded-t-2xl">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Tracking — {trackCampaign.name}</h2>
+                  <p className="text-xs text-gray-400">Detailed recipient activity for this campaign</p>
+                </div>
+                <button
+                  onClick={() => setShowTrack(false)}
+                  className="p-2 rounded-lg border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-5 overflow-y-auto max-h-[78vh]">
+                {/* Quick stats inside modal */}
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                  <StatCard title="Recipients" value={String(trackStats.total)} icon={Mail} />
+                  <StatCard title="Delivered" value={String(trackStats.delivered)} icon={CheckCircle2} />
+                  <StatCard title="Opened (uniq)" value={String(trackStats.openedUnique)} icon={Eye} />
+                  <StatCard title="Opens" value={String(trackStats.opens)} icon={Eye} />
+                  <StatCard title="Clicks" value={String(trackStats.clicks)} icon={MousePointerClick} />
+                  <StatCard title="Bounced/Compl." value={String(trackStats.bounced + trackStats.complained)} icon={AlertTriangle} />
+                </div>
+
+                {/* Filters & search */}
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    {(
+                      [
+                        ["all", "All"],
+                        ["delivered", "Delivered"],
+                        ["opened", "Opened"],
+                        ["clicked", "Clicked"],
+                        ["not_opened", "Not opened"],
+                        ["bounced", "Bounced"],
+                        ["complained", "Complained"],
+                      ] as [TrackFilter, string][]
+                    ).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => setTrackFilter(val)}
+                        className={`px-3 py-1.5 rounded-lg border text-xs ${
+                          trackFilter === val
+                            ? "border-emerald-500 bg-emerald-600/20 text-emerald-300"
+                            : "border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-700"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search name or email…"
+                      value={trackSearch}
+                      onChange={(e) => setTrackSearch(e.target.value)}
+                      className="pl-9 pr-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm text-gray-200 placeholder-gray-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Recipient activity table */}
+                <div className="overflow-auto rounded-xl border border-gray-700">
+                  <table className="min-w-[900px] w-full text-sm">
+                    <thead className="bg-gray-900/60">
+                      <tr className="text-left text-gray-300">
+                        <th className="px-3 py-2">Name</th>
+                        <th className="px-3 py-2">Email</th>
+                        <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2">Sent</th>
+                        <th className="px-3 py-2">Opened</th>
+                        <th className="px-3 py-2">Clicks</th>
+                        <th className="px-3 py-2">Last Event</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800">
+                      {trackLoading ? (
+                        <tr>
+                          <td className="px-3 py-3 text-gray-400" colSpan={7}>
+                            Loading…
+                          </td>
+                        </tr>
+                      ) : filteredTrackRows.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-3 text-gray-400" colSpan={7}>
+                            No matching recipients.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredTrackRows.map((r) => (
+                          <tr key={r.id} className="text-gray-200">
+                            <td className="px-3 py-2 max-w-[220px] truncate">{r.contact_name || "—"}</td>
+                            <td className="px-3 py-2 max-w-[260px] truncate text-gray-300">{r.email}</td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  r.status === "delivered"
+                                    ? "bg-emerald-600/20 text-emerald-300"
+                                    : r.status === "bounced" || r.status === "complained"
+                                    ? "bg-red-600/20 text-red-300"
+                                    : r.status === "clicked"
+                                    ? "bg-indigo-600/20 text-indigo-300"
+                                    : r.status === "opened"
+                                    ? "bg-sky-600/20 text-sky-300"
+                                    : r.status === "sent"
+                                    ? "bg-gray-600/20 text-gray-300"
+                                    : "bg-gray-700/40 text-gray-300"
+                                }`}
+                              >
+                                {r.status}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">{fmtDate(r.sent_at)}</td>
+                            <td className="px-3 py-2">
+                              {r.opens_count > 0 ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex items-center gap-1 text-emerald-300">
+                                    <Eye className="w-3.5 h-3.5" /> {r.opens_count}
+                                  </span>
+                                  <span className="text-xs text-gray-400">{fmtDate(r.opened_at)}</span>
+                                </div>
+                              ) : (
+                                <span className="text-gray-500">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              {r.clicks_count > 0 ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex items-center gap-1 text-indigo-300">
+                                    <MousePointerClick className="w-3.5 h-3.5" /> {r.clicks_count}
+                                  </span>
+                                  <span className="text-xs text-gray-400">{fmtDate(r.clicked_at)}</span>
+                                </div>
+                              ) : (
+                                <span className="text-gray-500">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-gray-400">{fmtDate(r.last_event_at)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-between items-center text-xs text-gray-400">
+                  <div>
+                    Showing {filteredTrackRows.length} of {trackRows.length} recipients
+                  </div>
+                  <button
+                    onClick={() => trackCampaign && loadTracking(trackCampaign.id)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-700 bg-gray-900 hover:bg-gray-700 text-gray-200"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5" /> Refresh
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AuthGuard>
   );
+}
+
+// ------------- utils -------------
+function fmtDate(x: string | null) {
+  if (!x) return "—";
+  try {
+    const d = new Date(x);
+    // locale-friendly short format
+    return d.toLocaleString(undefined, {
+      year: "2-digit",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return x;
+  }
 }

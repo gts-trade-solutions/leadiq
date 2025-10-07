@@ -1,443 +1,526 @@
 // supabase/functions/email-campaigns/index.ts
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  createClient,
+  type SupabaseClient,
+} from "https://esm.sh/@supabase/supabase-js@2";
 import { SESv2Client, SendEmailCommand } from "npm:@aws-sdk/client-sesv2";
 
-const FN_SLUG = "email-campaigns";
-
-// ===== ENV =====
+// ========= ENV =========
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const AWS_REGION = Deno.env.get("AWS_REGION")!;
-const SES_CONFIGURATION_SET = Deno.env.get("SES_CONFIGURATION_SET") || undefined;
+const SES_CONFIGURATION_SET = Deno.env.get("SES_CONFIGURATION_SET") || "";
 
-// ===== Clients =====
+// ========= Clients =========
 const ses = new SESv2Client({ region: AWS_REGION });
+const svc = () => createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const asUser = (req: Request) =>
+  createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: {
+      headers: { Authorization: req.headers.get("authorization") ?? "" },
+    },
+  });
 
-// ===== Helpers / CORS =====
+// ========= CORS (allow all — same style as your reference) =========
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 } as const;
 
-const j = (b: unknown, s = 200) =>
-  new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json", ...CORS } });
+const j = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...CORS },
+  });
 
-const now = () => new Date().toISOString();
+// ========= Helpers =========
+const nowIso = () => new Date().toISOString();
 const normEmail = (e?: string | null) => (e || "").trim().toLowerCase();
 
-const sbUser = (req: Request) => {
-  const auth = req.headers.get("authorization") ?? "";
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: auth } } });
-};
-const sbService = () => createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-async function userId(supabase: any) {
-  const { data, error } = await supabase.auth.getUser();
-  return error || !data?.user ? null : (data.user.id as string);
+async function requireUserId(client: SupabaseClient) {
+  const { data, error } = await client.auth.getUser();
+  if (error || !data?.user) return null;
+  return data.user.id as string;
 }
 
-function normalizePath(req: Request) {
-  let p = new URL(req.url).pathname.replace(/\/+$/, "");
-  p = p.replace(/^\/functions\/v\d+\//, "/"); // strip /functions/v1
-  const slugRe = new RegExp(`^/${FN_SLUG}(?=/|$)`);
-  p = p.replace(slugRe, ""); // strip /email-campaigns
-  if (p === "") p = "/";
-  return p;
-}
-
-function chunk<T>(arr: T[], size: number) {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-// ===== Status priority (like your old route) =====
-const statusRank: Record<string, number> = {
-  delivery: 1,
-  open: 2,
-  click: 3,
-  bounce: 4,
-  complaint: 5,
-};
-function rankOf(s?: string | null) {
-  if (!s) return 0;
-  return statusRank[String(s).toLowerCase()] ?? 0;
-}
-// Map SES event -> recipient.status value we store
-function statusForEvent(evt: string): string | null {
-  switch (evt) {
-    case "delivery": return "delivered";
-    case "bounce": return "bounced";
-    case "complaint": return "complained";
-    // open/click don’t change status, we only bump counters/timestamps
-    default: return null;
+async function getVerifiedSender(userId: string, provided?: string | null) {
+  const db = svc();
+  if (provided) {
+    const { data } = await db
+      .from("email_identities")
+      .select("email")
+      .eq("user_id", userId)
+      .eq("email", normEmail(provided))
+      .eq("status", "verified")
+      .maybeSingle();
+    return data?.email ?? null;
   }
+  const { data } = await db
+    .from("email_identities")
+    .select("email")
+    .eq("user_id", userId)
+    .eq("status", "verified")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.email ?? null;
 }
 
-// ===================================================
-// POST /campaigns
-// body: { name, subject, html, from_email, contact_ids?: string[] }
-async function createCampaign(req: Request) {
-  const supabase = sbUser(req);
-  const uid = await userId(supabase);
-  if (!uid) return j({ error: "Unauthorized" }, 401);
+// ========= Update helpers (used by SNS) =========
+type UpdateFields = {
+  status?: string;
+  last_event_at?: string;
+  opened_at?: string | null;
+  clicked_at?: string | null;
+  opens_count?: number;
+  clicks_count?: number;
+};
 
-  let body: any = {};
-  try { body = await req.json(); } catch {}
-  const { name, subject, html, from_email, contact_ids } = body || {};
-  if (!name || !subject || !html || !from_email) return j({ error: "Missing required fields" }, 400);
+async function updateBoth(message_id: string, fields: UpdateFields) {
+  const db = svc();
+  await db
+    .from("campaign_recipients")
+    .update(fields)
+    .eq("message_id", message_id);
+  await db.from("oneoff_emails").update(fields).eq("message_id", message_id);
+}
 
-  // Try unlocked view first (minimal cols), fallback join if needed
-  let rows: any[] = [];
-  let viewOK = true;
-  {
-    let q = supabase.from("unlocked_contacts_v").select("contact_id,email").eq("user_id", uid);
-    if (Array.isArray(contact_ids) && contact_ids.length) q = q.in("contact_id", contact_ids);
-    const { data, error } = await q.limit(5000);
-    if (!error) rows = data ?? [];
-    else viewOK = false;
+async function bumpCount(
+  message_id: string,
+  kind: "opens_count" | "clicks_count",
+  atField: "opened_at" | "clicked_at"
+) {
+  const db = svc();
+
+  // Try campaign_recipients first, then oneoff_emails
+  let table: "campaign_recipients" | "oneoff_emails" = "campaign_recipients";
+  let rec = await db
+    .from("campaign_recipients")
+    .select(`${kind}, ${atField}`)
+    .eq("message_id", message_id)
+    .maybeSingle();
+
+  if (!rec.data) {
+    table = "oneoff_emails";
+    rec = await db
+      .from("oneoff_emails")
+      .select(`${kind}, ${atField}`)
+      .eq("message_id", message_id)
+      .maybeSingle();
   }
-  if (!viewOK || (rows.length === 0 && !(Array.isArray(contact_ids) && contact_ids.length))) {
-    const { data: unlocks, error: uErr } = await supabase
-      .from("contacts_unlocks")
-      .select("contact_id")
-      .eq("user_id", uid)
-      .limit(5000);
-    if (uErr) return j({ error: uErr.message }, 400);
+  if (!rec.data) return;
 
-    let ids = (unlocks ?? []).map((r: any) => r.contact_id).filter(Boolean);
-    if (Array.isArray(contact_ids) && contact_ids.length) {
-      const set = new Set(contact_ids.map(String));
-      ids = ids.filter((id: any) => set.has(String(id)));
+  const current = (rec.data[kind] as number | null) ?? 0;
+  const update: Record<string, any> = {
+    [kind]: current + 1,
+    last_event_at: nowIso(),
+  };
+  if (!rec.data[atField]) update[atField] = nowIso();
+
+  const { error } = await db
+    .from(table)
+    .update(update)
+    .eq("message_id", message_id);
+  if (error)
+    console.error("SNS bumpCount update failed", {
+      table,
+      message_id,
+      update,
+      error,
+    });
+}
+
+// ========= SNS webhook (supports WRAPPED and RAW) =========
+async function handleSns(req: Request) {
+  const raw = await req.text();
+
+  try {
+    const outer = JSON.parse(raw);
+
+    // 1) Subscription confirmation
+    if (outer?.Type === "SubscriptionConfirmation" && outer?.SubscribeURL) {
+      try {
+        await fetch(outer.SubscribeURL);
+      } catch (e) {
+        console.error("SNS confirm error", e);
+        return j({ ok: false, error: "confirm_failed" }, 500);
+      }
+      return j({ ok: true, confirmed: true });
     }
 
-    rows = [];
-    for (const part of chunk(ids, 700)) {
-      const { data: crows, error: cErr } = await supabase
-        .from("contacts")
-        .select("id,email")
-        .in("id", part);
-      if (cErr) return j({ error: cErr.message }, 400);
-      rows.push(...(crows ?? []).map((c: any) => ({ contact_id: c.id, email: c.email })));
+    // 2) SNS-wrapped notification
+    if (outer?.Type === "Notification") {
+      const msg =
+        typeof outer.Message === "string"
+          ? JSON.parse(outer.Message)
+          : outer.Message;
+      if (msg?.eventType && msg?.mail?.messageId) {
+        await processSesEvent(msg.eventType, msg.mail.messageId);
+        return j({ ok: true, processed: true });
+      }
+      return j({ ok: true, ignored: true });
     }
-  }
 
-  // Deduplicate by contact_id and normalized email
-  const seenId = new Set<string>();
-  const seenEmail = new Set<string>();
-  const recipients: { contact_id: string; email: string; tracking_token: string }[] = [];
-  for (const r of rows ?? []) {
-    const id = String(r.contact_id);
-    const em = normEmail(r.email);
-    if (!id || !em) continue;
-    if (seenId.has(id) || seenEmail.has(em)) continue;
-    seenId.add(id);
-    seenEmail.add(em);
-    recipients.push({ contact_id: id, email: em, tracking_token: crypto.randomUUID() });
-  }
+    // 3) RAW SES event (when "Raw message delivery" = ON)
+    if (outer?.eventType && outer?.mail?.messageId) {
+      await processSesEvent(outer.eventType, outer.mail.messageId);
+      return j({ ok: true, processed: true, raw: true });
+    }
 
-  const { data: camp, error: insErr } = await supabase
+    return j({ ok: true, ignored: true });
+  } catch {
+    return j({ ok: true, ignored: true });
+  }
+}
+
+async function processSesEvent(eventType: string, messageId: string) {
+  const evt = eventType.toLowerCase();
+  const ts = nowIso();
+
+  if (evt === "delivery")
+    await updateBoth(messageId, { status: "delivered", last_event_at: ts });
+  else if (evt === "bounce")
+    await updateBoth(messageId, { status: "bounced", last_event_at: ts });
+  else if (evt === "complaint")
+    await updateBoth(messageId, { status: "complained", last_event_at: ts });
+  else if (evt === "open")
+    await bumpCount(messageId, "opens_count", "opened_at");
+  else if (evt === "click")
+    await bumpCount(messageId, "clicks_count", "clicked_at");
+  else console.log("SNS: unhandled eventType", eventType);
+}
+
+// ========= Campaign create =========
+async function handleCreateCampaign(req: Request, userClient: SupabaseClient) {
+  const uid = await requireUserId(userClient);
+  if (!uid) return j({ code: 401, message: "Unauthorized" }, 401);
+
+  const body = await req.json().catch(() => ({}));
+  const name = String(body?.name || "Untitled");
+  const subject = String(body?.subject || "");
+  const html = String(body?.html || "");
+  const from_email = normEmail(body?.from_email);
+  const contact_ids: string[] = Array.isArray(body?.contact_ids)
+    ? body.contact_ids
+    : [];
+
+  if (!subject || !html)
+    return j({ code: 400, message: "Missing subject or html" }, 400);
+
+  const sender = await getVerifiedSender(uid, from_email);
+  if (!sender)
+    return j(
+      { code: "SENDER_NOT_VERIFIED", message: "From email is not verified." },
+      400
+    );
+
+  // Create campaign (let DB default set the status to avoid enum mismatch)
+  const { data: camp, error: campErr } = await userClient
     .from("campaigns")
-    .insert({
-      user_id: uid,
-      name,
-      subject,
-      from_email,
-      html,
-      recipients_count: recipients.length,
-      status: "sending",
-    })
+    .insert({ user_id: uid, name, subject, html, from_email: sender })
     .select("id")
     .single();
-  if (insErr) return j({ error: insErr.message }, 400);
-  const campaign_id = camp!.id as string;
+  if (campErr)
+    return j({ code: 500, message: campErr.message || "Create failed" }, 500);
+  const campaign_id = camp.id as string;
 
-  if (recipients.length) {
-    const { error: recErr } = await supabase.from("campaign_recipients").insert(
-      recipients.map((r) => ({
-        campaign_id,
-        contact_id: r.contact_id,
-        email: r.email,
-        tracking_token: r.tracking_token,
-        status: "queued",
-      })),
+  if (!contact_ids.length) return j({ ok: true, id: campaign_id, inserted: 0 });
+
+  // Pull unlocked contacts and dedupe by email
+  const db = svc();
+  const { data: unlocked, error: uErr } = await db
+    .from("unlocked_contacts_v")
+    .select("contact_id,email")
+    .in("contact_id", contact_ids);
+  if (uErr)
+    return j(
+      { code: 500, message: uErr.message || "Failed loading contacts" },
+      500
     );
-    if (recErr) return j({ error: recErr.message }, 400);
+
+  const seen = new Set<string>();
+  const rows = (unlocked ?? [])
+    .map((r) => ({
+      contact_id: r.contact_id as string,
+      email: normEmail(r.email),
+    }))
+    .filter((r) => r.email && !seen.has(r.email) && (seen.add(r.email), true))
+    .map((r) => ({
+      campaign_id,
+      contact_id: r.contact_id,
+      email: r.email,
+      status: "queued",
+      tracking_token: crypto.randomUUID(), // <-- required by your NOT NULL column
+    }));
+
+  if (rows.length) {
+    const { error: recErr } = await db.from("campaign_recipients").insert(rows);
+    if (recErr)
+      return j(
+        { code: 500, message: recErr.message || "Failed inserting recipients" },
+        500
+      );
   }
 
-  return j({ id: campaign_id, recipients: recipients.length }, 201);
+  return j({ ok: true, id: campaign_id, inserted: rows.length });
 }
 
-// ===================================================
-// POST /campaigns/:id/send
-async function sendCampaign(req: Request, id: string) {
-  const supabase = sbUser(req);
-  const uid = await userId(supabase);
-  if (!uid) return j({ error: "Unauthorized" }, 401);
+// ========= Campaign send =========
+async function handleSendCampaign(
+  userClient: SupabaseClient,
+  campaign_id: string
+) {
+  const uid = await requireUserId(userClient);
+  if (!uid) return j({ code: 401, message: "Unauthorized" }, 401);
 
-  const camp = await supabase
-    .from("campaigns")
-    .select("id,user_id,subject,from_email,html,price_per_email")
-    .eq("id", id)
-    .single();
-  if (camp.error || !camp.data) return j({ error: "Campaign not found" }, 404);
-  if (camp.data.user_id !== uid) return j({ error: "Forbidden" }, 403);
-
-  const rec = await supabase
-    .from("campaign_recipients")
-    .select("id,email")
-    .eq("campaign_id", id)
-    .eq("status", "queued");
-  if (rec.error) return j({ error: rec.error.message }, 400);
-
-  const recipients = rec.data ?? [];
-  const count = recipients.length;
-  if (count === 0) return j({ ok: true, sent: 0 });
-
-  // Optional: pre-check credits
-  let credits: number | null = null;
-  try {
-    const { data } = await supabase.rpc("fn_available_credits", { p_user: uid });
-    if (typeof data === "number") credits = data;
-  } catch {}
-  const price = (camp.data.price_per_email ?? 1) as number;
-  const needed = count * price;
-  if (credits !== null && credits < needed) return j({ error: "Not enough credits" }, 402);
-
-  // Optional debit
-  try {
-    const { error: dErr } = await supabase.rpc("sp_debit_credits", {
-      p_user: uid,
-      p_amount: needed,
-      p_correlation: `send-${id}`,
-      p_note: "Campaign send",
-      p_metadata: { campaign_id: id, recipients: count },
-    });
-    if (dErr) console.warn("sp_debit_credits error:", dErr.message);
-  } catch (e) {
-    console.warn("sp_debit_credits call failed:", (e as any)?.message);
+  if (!SES_CONFIGURATION_SET) {
+    console.error("Missing SES_CONFIGURATION_SET; tracking will not work");
+    return j(
+      {
+        code: 500,
+        message: "SES_CONFIGURATION_SET is not set; cannot send with tracking.",
+      },
+      500
+    );
   }
 
-  // Send via SES
+  const db = svc();
+  const { data: camp, error: cErr } = await db
+    .from("campaigns")
+    .select("id,user_id,subject,html,from_email,status")
+    .eq("id", campaign_id)
+    .maybeSingle();
+  if (cErr || !camp || camp.user_id !== uid)
+    return j({ code: 404, message: "Campaign not found" }, 404);
+
+  const sender = await getVerifiedSender(uid, camp.from_email);
+  if (!sender)
+    return j(
+      { code: "SENDER_NOT_VERIFIED", message: "From email is not verified." },
+      400
+    );
+
+  const { data: recs } = await db
+    .from("campaign_recipients")
+    .select("id,email")
+    .eq("campaign_id", campaign_id)
+    .eq("status", "queued")
+    .limit(5000);
+
+  // mark "sending" to satisfy your enum (sending|sent|failed)
+  await db
+    .from("campaigns")
+    .update({ status: "sending" })
+    .eq("id", campaign_id);
+
   let sent = 0;
-  for (const r of recipients) {
+  for (const r of recs ?? []) {
     try {
-      const cmd = new SendEmailCommand({
-        FromEmailAddress: camp.data.from_email,
-        Destination: { ToAddresses: [r.email] },
-        Content: {
-          Simple: {
-            Subject: { Data: camp.data.subject },
-            Body: { Html: { Data: camp.data.html } },
+      const res = await ses.send(
+        new SendEmailCommand({
+          FromEmailAddress: sender,
+          Destination: { ToAddresses: [r.email] },
+          Content: {
+            Simple: {
+              Subject: { Data: camp.subject, Charset: "UTF-8" },
+              Body: { Html: { Data: camp.html, Charset: "UTF-8" } },
+            },
           },
-        },
-        ConfigurationSetName: SES_CONFIGURATION_SET, // must attach config set
-        EmailTags: [
-          { Name: "campaign_id", Value: id },
-          { Name: "recipient_id", Value: r.id },
-        ],
-      });
-      const resp = await ses.send(cmd);
-      const messageId = (resp as any)?.MessageId ?? null;
-
-      await supabase
+          ConfigurationSetName: SES_CONFIGURATION_SET, // REQUIRED for events
+          EmailTags: [
+            { Name: "type", Value: "campaign" },
+            { Name: "campaign_id", Value: campaign_id },
+            { Name: "recipient_id", Value: r.id },
+          ],
+        })
+      );
+      await db
         .from("campaign_recipients")
-        .update({ status: "sent", sent_at: now(), message_id: messageId, last_event_at: now() })
+        .update({
+          status: "sent",
+          message_id: res.MessageId ?? null,
+          sent_at: nowIso(),
+        })
         .eq("id", r.id);
-
       sent++;
-    } catch {
-      await supabase
+    } catch (e) {
+      console.error("SES send error", e);
+      await db
         .from("campaign_recipients")
-        .update({ status: "bounced", last_event_at: now() })
+        .update({ status: "queued" })
         .eq("id", r.id);
     }
   }
 
-  const { error: updErr } = await supabase
+  // mark campaign "sent" if nothing left in queue
+  const { count } = await db
+    .from("campaign_recipients")
+    .select("*", { count: "exact", head: true })
+    .eq("campaign_id", campaign_id)
+    .eq("status", "queued");
+  await db
     .from("campaigns")
-    .update({ credits_charged: needed })
-    .eq("id", id);
-  if (updErr) console.warn("credits_charged update failed:", updErr.message);
+    .update({ status: count ? "sending" : "sent" })
+    .eq("id", campaign_id);
 
   return j({ ok: true, sent });
 }
 
-// ===================================================
-// POST /sns  (SES -> SNS -> HTTPS)
-// mirrors your old route's behavior + priority updates
-async function handleSns(req: Request) {
-  const supabase = sbService(); // service role to bypass RLS
-  const raw = await req.text();
-  const msgType = req.headers.get("x-amz-sns-message-type") || ""; // like your old route
+// ========= One-off send =========
+async function handleOneoffSend(req: Request, userClient: SupabaseClient) {
+  const uid = await requireUserId(userClient);
+  if (!uid) return j({ code: 401, message: "Unauthorized" }, 401);
 
-  // SubscriptionConfirmation
-  if (msgType === "SubscriptionConfirmation") {
-    try {
-      const outer = JSON.parse(raw);
-      if (outer?.SubscribeURL) await fetch(outer.SubscribeURL);
-      return j({ ok: true, confirmed: true });
-    } catch (e: any) {
-      return j({ error: e?.message || "Bad SubscriptionConfirmation" }, 400);
-    }
+  if (!SES_CONFIGURATION_SET) {
+    console.error("Missing SES_CONFIGURATION_SET; tracking will not work");
+    return j(
+      {
+        code: 500,
+        message: "SES_CONFIGURATION_SET is not set; cannot send with tracking.",
+      },
+      500
+    );
   }
 
-  // Notification (normal event)
-  if (msgType === "Notification") {
-    let outer: any;
-    try { outer = JSON.parse(raw); } catch { return j({ error: "Invalid SNS envelope" }, 400); }
-    let ev: any;
-    try { ev = typeof outer.Message === "string" ? JSON.parse(outer.Message) : outer.Message; }
-    catch { return j({ error: "Invalid SNS Message" }, 400); }
+  const body = await req.json().catch(() => ({}));
+  const to = normEmail(body?.to);
+  const subject = String(body?.subject || "").trim();
+  const html = String(body?.html || "");
+  const from_email = normEmail(body?.from_email);
+  const contact_id = body?.contact_id ? String(body.contact_id) : null;
 
-    const eventType = String(ev.eventType || ev.notificationType || "unknown").toLowerCase();
-    const mail = ev.mail || {};
-    const messageId = mail.messageId || null;
-    const destination = mail.destination?.[0] || null;
-    const eventTime = mail.timestamp || now();
+  if (!to || !subject || !html)
+    return j({ code: 400, message: "Missing 'to', 'subject' or 'html'." }, 400);
 
-    // Metadata (like your route)
-    let link: string | null = null;
-    let ip: string | null = null;
-    let userAgent: string | null = null;
+  const sender = await getVerifiedSender(uid, from_email);
+  if (!sender)
+    return j(
+      { code: "SENDER_NOT_VERIFIED", message: "No verified sender." },
+      400
+    );
 
-    if (eventType === "click") {
-      link = ev.click?.link || null;
-      ip = ev.click?.ipAddress || null;
-      userAgent = ev.click?.userAgent || null;
-    } else if (eventType === "open") {
-      ip = ev.open?.ipAddress || null;
-      userAgent = ev.open?.userAgent || null;
-    }
+  const userDb = userClient;
+  const db = svc();
 
-    // Prefer tags to identify the row; then messageId; then (campaign_id + email)
-    const tags = mail.tags || {};
-    const tagCampaign = (tags.campaign_id?.[0]) ?? null;
-    const tagRecipient = (tags.recipient_id?.[0]) ?? null;
+  const { data: ins, error: insErr } = await userDb
+    .from("oneoff_emails")
+    .insert({
+      user_id: uid,
+      contact_id,
+      email: to,
+      from_email: sender,
+      subject,
+      html,
+      status: "queued",
+    })
+    .select("id")
+    .single();
+  if (insErr)
+    return j({ code: 500, message: insErr.message || "Insert failed" }, 500);
+  const id = ins.id as string;
 
-    // Resolve recipient
-    let recId: string | null = tagRecipient ?? null;
-    let campaignId: string | null = tagCampaign ?? null;
-
-    if (!recId && messageId) {
-      const { data: listByMsg } = await supabase
-        .from("campaign_recipients")
-        .select("id,campaign_id")
-        .eq("message_id", messageId)
-        .limit(1);
-      const found = listByMsg?.[0];
-      if (found) {
-        recId = found.id;
-        campaignId = campaignId || found.campaign_id;
-      }
-    }
-
-    if (!recId && tagCampaign && destination) {
-      const { data: listByEmail } = await supabase
-        .from("campaign_recipients")
-        .select("id,campaign_id")
-        .eq("campaign_id", tagCampaign)
-        .eq("email", normEmail(destination))
-        .limit(1);
-      const found = listByEmail?.[0];
-      if (found) {
-        recId = found.id;
-        campaignId = campaignId || found.campaign_id;
-      }
-    }
-
-    if (!campaignId) {
-      // As a last resort, try to get it via recipient row (if we have recId)
-      if (recId) {
-        const { data: rRow } = await supabase
-          .from("campaign_recipients")
-          .select("campaign_id")
-          .eq("id", recId)
-          .limit(1);
-        campaignId = rRow?.[0]?.campaign_id ?? null;
-      }
-    }
-
-    // Always record raw event (even if we couldn't fully resolve)
-    await supabase.from("campaign_events").insert({
-      campaign_id: campaignId,
-      recipient_id: recId,
-      kind: eventType,
-      meta: ev,
-    });
-
-    if (!recId) {
-      // Can't map this event to a recipient => nothing else to mutate
-      return j({ ok: true, note: "event recorded; recipient not found" });
-    }
-
-    // Fetch current recipient state for priority compare
-    const { data: recState } = await supabase
-      .from("campaign_recipients")
-      .select("status,opens_count,clicks_count")
-      .eq("id", recId)
-      .limit(1);
-    const current = recState?.[0] ?? { status: null, opens_count: 0, clicks_count: 0 };
-    const incomingRank = rankOf(eventType);
-    const existingRank = rankOf(current.status);
-
-    // Build update per eventType (priority-aware)
-    const t = new Date(eventTime).toISOString();
-    const upd: any = { last_event_at: t };
-
-    // Status bump if higher priority
-    const nextStatus = statusForEvent(eventType);
-    if (nextStatus && incomingRank > existingRank) {
-      upd.status = nextStatus;
-    }
-    // If open/click arrive before "delivery", ensure status at least "delivered"
-    if ((eventType === "open" || eventType === "click") && existingRank < rankOf("delivery")) {
-      upd.status = "delivered";
-    }
-
-    // Counters / timestamps
-    if (eventType === "open") {
-      upd.opened_at = t;
-      upd.opens_count = (current.opens_count ?? 0) + 1;
-    } else if (eventType === "click") {
-      upd.clicked_at = t;
-      upd.clicks_count = (current.clicks_count ?? 0) + 1;
-    }
-
-    // Optional: you can persist ip/userAgent/link to a separate audit table if you like
-
-    const { error: uErr } = await supabase.from("campaign_recipients").update(upd).eq("id", recId);
-    if (uErr) console.warn("recipient update failed:", uErr.message);
-
-    return j({ ok: true });
+  let msgId = "";
+  try {
+    const res = await ses.send(
+      new SendEmailCommand({
+        FromEmailAddress: sender,
+        Destination: { ToAddresses: [to] },
+        Content: {
+          Simple: {
+            Subject: { Data: subject, Charset: "UTF-8" },
+            Body: { Html: { Data: html, Charset: "UTF-8" } },
+          },
+        },
+        ConfigurationSetName: SES_CONFIGURATION_SET, // REQUIRED for events
+        EmailTags: [
+          { Name: "type", Value: "oneoff" },
+          { Name: "oneoff_id", Value: id },
+          { Name: "user_id", Value: uid },
+        ],
+      })
+    );
+    msgId = res?.MessageId ?? "";
+  } catch (e: any) {
+    await db
+      .from("oneoff_emails")
+      .update({ error: e?.message ?? "SES send failed" })
+      .eq("id", id);
+    return j({ code: 502, message: e?.message ?? "SES send failed" }, 502);
   }
 
-  // Not a type we handle
-  return j({ ok: true, ignored: true });
+  await db
+    .from("oneoff_emails")
+    .update({ status: "sent", message_id: msgId, sent_at: nowIso() })
+    .eq("id", id);
+  return j({ ok: true, id, message_id: msgId });
 }
 
-// ===================================================
-// Server
+// ========= Server =========
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-
-  const method = req.method.toUpperCase();
-  const path = normalizePath(req);
+  // Preflight for ALL paths
+  if (req.method === "OPTIONS")
+    return new Response(null, { status: 204, headers: CORS });
 
   try {
-    if (method === "POST" && path === "/campaigns") return await createCampaign(req);
-    if (method === "POST" && /^\/campaigns\/[^/]+\/send$/.test(path)) {
-      const id = path.split("/")[2];
-      return await sendCampaign(req, id);
+    const p = new URL(req.url).pathname;
+
+    // Public health
+    if (
+      req.method === "GET" &&
+      /\/(functions\/v1\/)?email-campaigns\/?$/.test(p)
+    ) {
+      return j({
+        ok: true,
+        service: "email-campaigns",
+        tracking_config_set: !!SES_CONFIGURATION_SET,
+      });
     }
-    if (method === "POST" && path === "/sns") return await handleSns(req);
-    if (method === "GET" && (path === "/" || path === "")) return j({ ok: true, service: FN_SLUG });
-    return j({ error: `Unsupported route ${method} ${path}` }, 404);
-  } catch (e: any) {
-    return j({ error: e?.message || "Internal error" }, 500);
+
+    // Public SNS webhook
+    if (
+      req.method === "POST" &&
+      /\/(functions\/v1\/)?email-campaigns\/sns$/.test(p)
+    ) {
+      return handleSns(req);
+    }
+
+    // Auth gate (everything else)
+    const userClient = asUser(req);
+    const uid = await requireUserId(userClient);
+    if (!uid) return j({ code: 401, message: "Invalid JWT" }, 401);
+
+    // Create campaign
+    if (
+      req.method === "POST" &&
+      /\/(functions\/v1\/)?email-campaigns\/campaigns$/.test(p)
+    ) {
+      return handleCreateCampaign(req, userClient);
+    }
+
+    // Send campaign
+    const m = p.match(
+      /\/(functions\/v1\/)?email-campaigns\/campaigns\/([a-f0-9-]{36})\/send$/i
+    );
+    if (req.method === "POST" && m) {
+      return handleSendCampaign(userClient, m[2]);
+    }
+
+    // One-off send
+    if (
+      req.method === "POST" &&
+      /\/(functions\/v1\/)?email-campaigns\/oneoff\/send$/.test(p)
+    ) {
+      return handleOneoffSend(req, userClient);
+    }
+
+    return j({ code: 404, message: "Not found" }, 404);
+  } catch (e) {
+    console.error("Unhandled error", e);
+    return j({ code: 500, message: "Internal error" }, 500);
   }
 });

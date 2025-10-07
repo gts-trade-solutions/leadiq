@@ -1,5 +1,5 @@
 "use client";
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import SectionHeader from "@/components/SectionHeader";
 import Table from "@/components/Table";
@@ -18,6 +18,56 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+
+type SizeBucket = "" | "lt100" | "lt1000" | "lt10000" | "gte10000";
+
+export const SIZE_BUCKETS: { value: SizeBucket; label: string }[] = [
+  { value: "", label: "All" },
+  { value: "lt100", label: "< 100" },
+  { value: "lt1000", label: "< 1,000" },
+  { value: "lt10000", label: "< 10,000" },
+  { value: "gte10000", label: "≥ 10,000" },
+];
+
+// Parse strings like "1–10", "11-50", "51 — 200", "10000+"
+function sizeToRange(
+  sizeStr?: string | null
+): { min: number; max: number } | null {
+  const s = (sizeStr || "").trim();
+  if (!s) return null;
+
+  const cleaned = s.replace(/[–—]/g, "-"); // normalize dashes
+  const nums = cleaned.match(/\d+/g)?.map((n) => parseInt(n, 10)) ?? [];
+  if (nums.length === 0) return null;
+
+  if (nums.length === 1) {
+    const n = nums[0];
+    const plus = /\+$/.test(cleaned);
+    return { min: n, max: plus ? Number.MAX_SAFE_INTEGER : n };
+  }
+  const [a, b] = nums;
+  return { min: Math.min(a, b), max: Math.max(a, b) };
+}
+
+function sizeMatchesBucket(sizeStr: string, bucket: SizeBucket): boolean {
+  if (!bucket) return true;
+  const r = sizeToRange(sizeStr);
+  if (!r) return false;
+
+  const { min, max } = r;
+  switch (bucket) {
+    case "lt100":
+      return max < 100;
+    case "lt1000":
+      return max < 1000;
+    case "lt10000":
+      return max < 10000;
+    case "gte10000":
+      return min >= 10000 || max >= 10000;
+    default:
+      return true;
+  }
+}
 
 type Row = {
   company_id: string;
@@ -270,7 +320,11 @@ export default function CompaniesPage() {
         norm(r.companyType) !== norm(filters.companyType)
       )
         return false;
-      if (filters.size && norm(r.size) !== norm(filters.size)) return false;
+      if (
+        filters.size &&
+        !sizeMatchesBucket(r.size, filters.size as SizeBucket)
+      )
+        return false;
       if (filters.location && norm(r.location) !== norm(filters.location))
         return false;
 
@@ -602,53 +656,60 @@ export default function CompaniesPage() {
     [allRows]
   );
 
-function requiredPriceFor(type: "financials" | "forecast" | "mgmt_pack") {
-  return 10; // all are 10 credits per your spec
-}
-
-async function handleUnlockClick(type: "financials" | "forecast" | "mgmt_pack") {
-  // always refresh balance before deciding
-  await fetchWalletBalance();
-  setConfirmUnlock({ open: true, type, price: requiredPriceFor(type) });
-}
-
-async function confirmUnlockNow() {
-  if (!selectedCompanyId || !confirmUnlock.type) return;
-
-  const price = confirmUnlock.price;
-  const balance = walletBalance ?? 0;
-
-  // Client-side guard
-  if (balance < price) {
-    setConfirmUnlock((s) => ({ ...s, msg: "Insufficient credits. Please add credits to proceed." }));
-    return;
+  function requiredPriceFor(type: "financials" | "forecast" | "mgmt_pack") {
+    return 10; // all are 10 credits per your spec
   }
 
-  // Server-side purchase (also guarded on backend)
-  const res = await fetch("/api/company-assets/unlock", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ company_id: selectedCompanyId, type: confirmUnlock.type }),
-  });
-  const json = await res.json();
-
-  if (!res.ok) {
-    setConfirmUnlock((s) => ({ ...s, msg: json?.error || "Unlock failed" }));
+  async function handleUnlockClick(
+    type: "financials" | "forecast" | "mgmt_pack"
+  ) {
+    // always refresh balance before deciding
     await fetchWalletBalance();
-    return;
+    setConfirmUnlock({ open: true, type, price: requiredPriceFor(type) });
   }
 
-  // success
-  setConfirmUnlock({ open: false, type: null, price: 10 });
-  await fetchWalletBalance();
-  await openCompanyModal(selectedCompanyId);
-  if (confirmUnlock.type === "mgmt_pack") {
-    await openContactsModal(selectedCompanyId);
-    setContactsModalOpen(false);
-  }
-  alert(json?.message || "Unlocked successfully");
-}
+  async function confirmUnlockNow() {
+    if (!selectedCompanyId || !confirmUnlock.type) return;
 
+    const price = confirmUnlock.price;
+    const balance = walletBalance ?? 0;
+
+    // Client-side guard
+    if (balance < price) {
+      setConfirmUnlock((s) => ({
+        ...s,
+        msg: "Insufficient credits. Please add credits to proceed.",
+      }));
+      return;
+    }
+
+    // Server-side purchase (also guarded on backend)
+    const res = await fetch("/api/company-assets/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        company_id: selectedCompanyId,
+        type: confirmUnlock.type,
+      }),
+    });
+    const json = await res.json();
+
+    if (!res.ok) {
+      setConfirmUnlock((s) => ({ ...s, msg: json?.error || "Unlock failed" }));
+      await fetchWalletBalance();
+      return;
+    }
+
+    // success
+    setConfirmUnlock({ open: false, type: null, price: 10 });
+    await fetchWalletBalance();
+    await openCompanyModal(selectedCompanyId);
+    if (confirmUnlock.type === "mgmt_pack") {
+      await openContactsModal(selectedCompanyId);
+      setContactsModalOpen(false);
+    }
+    alert(json?.message || "Unlocked successfully");
+  }
 
   return (
     <div className="space-y-6">
@@ -712,14 +773,14 @@ async function confirmUnlockNow() {
         )}
 
         {/* Available for everyone */}
-        <button
+        {/* <button
           onClick={load}
           className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
           disabled={loading}
         >
           <RefreshCcw className="w-4 h-4" />
           {loading ? "Refreshing…" : "Refresh"}
-        </button>
+        </button> */}
       </SectionHeader>
 
       {/* Quick stats */}
@@ -767,18 +828,23 @@ async function confirmUnlockNow() {
 
           {/* size */}
           <div className="md:col-span-2">
-            <label className="text-xs text-gray-400 block mb-1">Size</label>
+            <label className="text-xs text-gray-400 block mb-1">
+              Company Size
+            </label>
             <select
               value={filters.size}
               onChange={(e) =>
-                setFilters((f) => ({ ...f, size: e.target.value }))
+                setFilters((f) => ({
+                  ...f,
+                  size: e.target.value as SizeBucket,
+                }))
               }
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 hover:border-gray-600 transition-colors"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300
+             focus:outline-none focus:ring-2 focus:ring-emerald-500 hover:border-gray-600 transition-colors"
             >
-              <option value="">All</option>
-              {sizeOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
+              {SIZE_BUCKETS.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
                 </option>
               ))}
             </select>
@@ -1217,65 +1283,87 @@ async function confirmUnlockNow() {
           reload={load}
         />
       )}
-    {confirmUnlock.open && (
-  <div className="fixed inset-0 z-50">
-    <div className="absolute inset-0 bg-black/60" onClick={() => setConfirmUnlock({ open: false, type: null, price: 10 })} />
-    <div className="absolute inset-x-0 top-24 mx-auto w-[min(520px,95%)] rounded-2xl bg-gray-900 border border-gray-700 shadow-xl">
-      <div className="flex items-center justify-between p-4 border-b border-gray-700">
-        <h3 className="text-lg font-semibold">Confirm Purchase</h3>
-        <button onClick={() => setConfirmUnlock({ open: false, type: null, price: 10 })} className="text-gray-300 hover:text-white">✕</button>
-      </div>
-      <div className="p-4 space-y-3 text-sm">
-        <div className="text-gray-300">
-          You’re about to unlock:{" "}
-          <b className="capitalize">{confirmUnlock.type?.replace("_", " ")}</b>
+      {confirmUnlock.open && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() =>
+              setConfirmUnlock({ open: false, type: null, price: 10 })
+            }
+          />
+          <div className="absolute inset-x-0 top-24 mx-auto w-[min(520px,95%)] rounded-2xl bg-gray-900 border border-gray-700 shadow-xl">
+            <div className="flex items-center justify-between p-4 border-b border-gray-700">
+              <h3 className="text-lg font-semibold">Confirm Purchase</h3>
+              <button
+                onClick={() =>
+                  setConfirmUnlock({ open: false, type: null, price: 10 })
+                }
+                className="text-gray-300 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-3 text-sm">
+              <div className="text-gray-300">
+                You’re about to unlock:{" "}
+                <b className="capitalize">
+                  {confirmUnlock.type?.replace("_", " ")}
+                </b>
+              </div>
+              <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400">Current credits</span>
+                  <b className="text-white">{walletBalance ?? 0}</b>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400">Cost</span>
+                  <b className="text-white">-{confirmUnlock.price}</b>
+                </div>
+                <div className="flex items-center justify-between border-t border-gray-800 mt-2 pt-2">
+                  <span className="text-gray-400">Balance after</span>
+                  <b
+                    className={
+                      (walletBalance ?? 0) - confirmUnlock.price < 0
+                        ? "text-rose-300"
+                        : "text-white"
+                    }
+                  >
+                    {(walletBalance ?? 0) - confirmUnlock.price}
+                  </b>
+                </div>
+              </div>
+              {confirmUnlock.msg && (
+                <div className="text-rose-300 border border-rose-700/50 bg-rose-950/40 rounded-lg px-3 py-2">
+                  {confirmUnlock.msg}
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-gray-700 flex items-center justify-end gap-2">
+              <button
+                onClick={() =>
+                  setConfirmUnlock({ open: false, type: null, price: 10 })
+                }
+                className="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 hover:border-gray-600 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmUnlockNow}
+                disabled={(walletBalance ?? 0) < confirmUnlock.price}
+                className={`px-3 py-2 rounded-lg text-sm ${
+                  (walletBalance ?? 0) < confirmUnlock.price
+                    ? "bg-gray-700 text-gray-300 cursor-not-allowed"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                }`}
+              >
+                {(walletBalance ?? 0) < confirmUnlock.price
+                  ? "Insufficient credits"
+                  : "Confirm"}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-gray-400">Current credits</span>
-            <b className="text-white">{walletBalance ?? 0}</b>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-gray-400">Cost</span>
-            <b className="text-white">-{confirmUnlock.price}</b>
-          </div>
-          <div className="flex items-center justify-between border-t border-gray-800 mt-2 pt-2">
-            <span className="text-gray-400">Balance after</span>
-            <b className={(walletBalance ?? 0) - confirmUnlock.price < 0 ? "text-rose-300" : "text-white"}>
-              {(walletBalance ?? 0) - confirmUnlock.price}
-            </b>
-          </div>
-        </div>
-        {confirmUnlock.msg && (
-          <div className="text-rose-300 border border-rose-700/50 bg-rose-950/40 rounded-lg px-3 py-2">
-            {confirmUnlock.msg}
-          </div>
-        )}
-      </div>
-      <div className="p-4 border-t border-gray-700 flex items-center justify-end gap-2">
-        <button
-          onClick={() => setConfirmUnlock({ open: false, type: null, price: 10 })}
-          className="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 hover:border-gray-600 text-sm"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={confirmUnlockNow}
-          disabled={(walletBalance ?? 0) < confirmUnlock.price}
-          className={`px-3 py-2 rounded-lg text-sm ${
-            (walletBalance ?? 0) < confirmUnlock.price
-              ? "bg-gray-700 text-gray-300 cursor-not-allowed"
-              : "bg-emerald-600 hover:bg-emerald-700 text-white"
-          }`}
-        >
-          {(walletBalance ?? 0) < confirmUnlock.price ? "Insufficient credits" : "Confirm"}
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-
+      )}
     </div>
   );
 }
