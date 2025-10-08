@@ -288,7 +288,7 @@ export default function CompaniesPage() {
             .filter(Boolean);
           const city = parts[0] ?? "";
           const country = parts.length > 1 ? parts[parts.length - 1] : "";
-          return { ...r, location: [city, country].filter(Boolean).join(", ") };
+          return { ...r, location: [country].filter(Boolean) };
         });
         setAllRows(pruned as Row[]);
       } else {

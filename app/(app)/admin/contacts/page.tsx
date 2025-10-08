@@ -689,11 +689,10 @@ export default function ContactsPage() {
           >
             <Linkedin className="w-4 h-4" />
           </a>
-        ) : (
-          <span className={disabledCls}>
-            <Linkedin className="w-4 h-4" />
-          </span>
-        )}
+        ) : // <span className={disabledCls}>
+        //   <Linkedin className="w-4 h-4" />
+        // </span>
+        null}
         {r.facebook_url ? (
           <a
             href={r.facebook_url}
@@ -703,11 +702,10 @@ export default function ContactsPage() {
           >
             <Facebook className="w-4 h-4" />
           </a>
-        ) : (
-          <span className={disabledCls}>
-            <Facebook className="w-4 h-4" />
-          </span>
-        )}
+        ) : // <span className={disabledCls}>
+        //   <Facebook className="w-4 h-4" />
+        // </span>
+        null}
         {r.instagram_url ? (
           <a
             href={r.instagram_url}
@@ -717,11 +715,10 @@ export default function ContactsPage() {
           >
             <Instagram className="w-4 h-4" />
           </a>
-        ) : (
-          <span className={disabledCls}>
-            <Instagram className="w-4 h-4" />
-          </span>
-        )}
+        ) : // <span className={disabledCls}>
+        //   <Instagram className="w-4 h-4" />
+        // </span>
+        null}
       </Wrap>
     );
   };

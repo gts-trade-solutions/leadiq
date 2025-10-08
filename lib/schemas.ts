@@ -22,6 +22,9 @@ export const CompanyRow = z.object({
 );
 export type CompanyRowT = z.infer<typeof CompanyRow>;
 
+const emptyToNull = (v?: string | null) =>
+  v && v.toString().trim().length ? v.toString().trim() : null;
+
 export const ContactRow = z.object({
   company_id: z.string().min(1, "company_id is required"),
   contact_name: z.string().min(1, "contact_name is required"),
@@ -33,5 +36,6 @@ export const ContactRow = z.object({
   facebook_url: z.string().url().optional().or(z.literal("")),
   instagram_url: z.string().url().optional().or(z.literal("")),
   notes: z.string().optional().or(z.literal("")),
+  location: z.string().optional().transform(emptyToNull).nullable()
 });
 export type ContactRowT = z.infer<typeof ContactRow>;
