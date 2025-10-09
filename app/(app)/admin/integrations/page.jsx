@@ -19,7 +19,7 @@ export default function IntegrationsPage() {
     <div className="space-y-6">
       <SectionHeader
         title="Integrations"
-        description="Connect LeadIQ with your favorite tools and platforms"
+        description="Connect LeadSentra with your favorite tools and platforms"
       />
 
       {/* Integration Cards Grid */}

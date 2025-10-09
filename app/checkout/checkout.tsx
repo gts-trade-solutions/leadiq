@@ -217,7 +217,7 @@ export default function CheckoutPage() {
       order_id: data.order_id,
       amount: String(data.amount),
       currency: data.currency || "INR",
-      name: "LeadIQ",
+      name: "LeadSentra",
       description: `${credits} credits`,
       prefill: { name: full_name, email, contact: phone },
       notes: { credits: String(credits) },
@@ -254,7 +254,7 @@ export default function CheckoutPage() {
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-emerald-600 rounded-lg" />
-            <span className="font-semibold">LeadIQ</span>
+            <span className="font-semibold">LeadSentra</span>
           </div>
           <div className="text-sm text-gray-400">
             Secure checkout <span className="text-gray-600">•</span> Powered by

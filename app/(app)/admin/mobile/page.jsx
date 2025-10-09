@@ -8,14 +8,14 @@ export default function MobilePage() {
     <div className="space-y-6">
       <SectionHeader
         title="Mobile Applications"
-        description="Access LeadIQ on the go with our mobile apps"
+        description="Access LeadSentra on the go with our mobile apps"
       />
 
       {/* Mobile App Overview */}
       <div className="section-card">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div>
-            <h3 className="text-xl font-semibold text-white mb-4">LeadIQ Mobile</h3>
+            <h3 className="text-xl font-semibold text-white mb-4">LeadSentra Mobile</h3>
             <p className="text-gray-300 mb-6">
               Take your sales intelligence with you. Access contacts, manage campaigns,
               and track performance from anywhere with our native mobile applications.

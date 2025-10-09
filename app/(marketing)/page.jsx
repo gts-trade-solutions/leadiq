@@ -121,7 +121,7 @@ export default function MarketingHome() {
                 <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
                   <BarChart3 className="w-5 h-5 text-white" />
                 </div>
-                <span className="text-xl font-bold text-white">LeadIQ</span>
+                <span className="text-xl font-bold text-white">LeadSentra</span>
               </div>
 
               <div className="hidden md:flex items-center gap-6">
@@ -539,7 +539,7 @@ export default function MarketingHome() {
                 <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
                   <BarChart3 className="w-5 h-5 text-white" />
                 </div>
-                <span className="text-xl font-bold text-white">LeadIQ</span>
+                <span className="text-xl font-bold text-white">LeadSentra</span>
               </div>
               <p className="text-gray-400 text-sm leading-relaxed">
                 AI-powered sales intelligence to help you find the right prospects and turn pipeline into revenue.
@@ -551,7 +551,7 @@ export default function MarketingHome() {
                 <a href="https://github.com" target="_blank" rel="noreferrer" className="p-2 rounded-lg border border-gray-800 hover:border-emerald-600/50">
                   <Github className="w-4 h-4 text-gray-300" />
                 </a>
-                <a href="mailto:support@leadiq.app" className="p-2 rounded-lg border border-gray-800 hover:border-emerald-600/50">
+                <a href="mailto:support@LeadSentra.app" className="p-2 rounded-lg border border-gray-800 hover:border-emerald-600/50">
                   <Mail className="w-4 h-4 text-gray-300" />
                 </a>
               </div>
@@ -593,10 +593,10 @@ export default function MarketingHome() {
 
           <div className="mt-10 flex flex-col md:flex-row items-center justify-between gap-4 border-t border-gray-800 pt-6">
             <div className="text-sm text-gray-400">
-              © {new Date().getFullYear()} LeadIQ. All rights reserved.
+              © {new Date().getFullYear()} LeadSentra. All rights reserved.
             </div>
             <div className="text-xs text-gray-500">
-              Built for growth teams. Need a DPA? <a href="mailto:legal@leadiq.app" className="text-emerald-400 hover:underline">Contact legal</a>.
+              Built for growth teams. Need a DPA? <a href="mailto:legal@LeadSentra.app" className="text-emerald-400 hover:underline">Contact legal</a>.
             </div>
           </div>
         </div>

@@ -78,7 +78,7 @@ export default function Sidebar() {
           <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
             <BarChart3 className="w-5 h-5 text-white" />
           </div>
-          {!isCollapsed && <span className="text-xl font-bold text-white">LeadIQ</span>}
+          {!isCollapsed && <span className="text-xl font-bold text-white">LeadSentra</span>}
         </div>
         <button
           onClick={() => setIsCollapsed(v => !v)}

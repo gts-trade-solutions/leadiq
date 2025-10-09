@@ -4,7 +4,7 @@ import { SupabaseProvider } from '@/integrations/supabase/client';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata = {
-  title: 'LeadIQ - Sales Intelligence Platform',
+  title: 'LeadSentra - Sales Intelligence Platform',
   description: 'The future of sales intelligence and lead generation',
 };
 
