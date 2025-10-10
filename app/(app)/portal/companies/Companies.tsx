@@ -131,7 +131,7 @@ export default function CompaniesPage() {
     "Contacts",
   ];
 
-  // auth/admin
+  // auth/portal
   const [isAdmin, setIsAdmin] = useState(false);
 
   // data

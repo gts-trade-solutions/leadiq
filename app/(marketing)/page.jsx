@@ -49,7 +49,7 @@ export default function MarketingHome() {
     [currency]
   );
 
-  // --- NEW: exact compact label (so 2,300 => "2.3K" not "2K") ---
+  // --- exact compact label (so 2,300 => "2.3K" not "2K") ---
   const formatCreditsLabel = useCallback((n) => {
     if (n < 1000) return n.toLocaleString('en-US');
     const k = Math.round((n / 1000) * 10) / 10; // one decimal
@@ -124,14 +124,8 @@ export default function MarketingHome() {
                 <span className="text-xl font-bold text-white">LeadSentra</span>
               </div>
 
+              {/* Only keep Pricing in header */}
               <div className="hidden md:flex items-center gap-6">
-                <Link
-                  href="#features"
-                  onClick={(e) => handleSmoothScroll(e, 'features')}
-                  className="text-gray-300 hover:text-white text-sm"
-                >
-                  Features
-                </Link>
                 <Link
                   href="#pricing"
                   onClick={(e) => handleSmoothScroll(e, 'pricing')}
@@ -139,27 +133,13 @@ export default function MarketingHome() {
                 >
                   Pricing
                 </Link>
-                <Link
-                  href="#about"
-                  onClick={(e) => handleSmoothScroll(e, 'about')}
-                  className="text-gray-300 hover:text-white text-sm"
-                >
-                  About
-                </Link>
-                <Link
-                  href="#contact"
-                  onClick={(e) => handleSmoothScroll(e, 'contact')}
-                  className="text-gray-300 hover:text-white text-sm"
-                >
-                  Contact
-                </Link>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
               {signedIn === null ? null : signedIn ? (
                 <Link
-                  href="/admin/companies"
+                  href="/portal/companies"
                   className="bg-emerald-600 hover:bg-emerald-700 text-gray-100 px-4 py-2 rounded-lg text-sm"
                 >
                   Portal
@@ -170,12 +150,12 @@ export default function MarketingHome() {
                 </Link>
               )}
 
-              <Link
+              {/* <Link
                 href="/"
                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
               >
                 Start Free Trial
-              </Link>
+              </Link> */}
             </div>
           </div>
         </div>
@@ -326,7 +306,6 @@ export default function MarketingHome() {
               <div className="text-gray-200 font-medium">
                 I need{' '}
                 <span className="text-white font-semibold">
-                  {/* exact compact label */}
                   {formatCreditsLabel(credits)}
                 </span>{' '}
                 credits
@@ -529,10 +508,10 @@ export default function MarketingHome() {
         </div>
       </section>
 
-      {/* Footer (enhanced) */}
+      {/* Footer (cleaned: only brand + legal) */}
       <footer className="bg-gray-950 border-t border-gray-800">
         <div className="max-w-6xl mx-auto px-4 py-12">
-          <div className="grid md:grid-cols-4 gap-10">
+          <div className="grid md:grid-cols-2 gap-10">
             {/* Brand */}
             <div>
               <div className="flex items-center gap-2 mb-4">
@@ -544,49 +523,15 @@ export default function MarketingHome() {
               <p className="text-gray-400 text-sm leading-relaxed">
                 AI-powered sales intelligence to help you find the right prospects and turn pipeline into revenue.
               </p>
-              <div className="flex items-center gap-3 mt-5">
-                <a href="https://twitter.com" target="_blank" rel="noreferrer" className="p-2 rounded-lg border border-gray-800 hover:border-emerald-600/50">
-                  <Twitter className="w-4 h-4 text-gray-300" />
-                </a>
-                <a href="https://github.com" target="_blank" rel="noreferrer" className="p-2 rounded-lg border border-gray-800 hover:border-emerald-600/50">
-                  <Github className="w-4 h-4 text-gray-300" />
-                </a>
-                <a href="mailto:support@LeadSentra.app" className="p-2 rounded-lg border border-gray-800 hover:border-emerald-600/50">
-                  <Mail className="w-4 h-4 text-gray-300" />
-                </a>
-              </div>
+             
             </div>
 
-            {/* Product */}
-            <div>
-              <h4 className="text-white font-semibold mb-3">Product</h4>
-              <ul className="space-y-2 text-sm">
-                <li><Link href="#features" className="text-gray-400 hover:text-white">Features</Link></li>
-                <li><Link href="#pricing" className="text-gray-400 hover:text-white">Pricing</Link></li>
-                <li><a href="#" className="text-gray-400 hover:text-white">Changelog</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-white">Docs</a></li>
-              </ul>
-            </div>
-
-            {/* Company */}
-            <div>
-              <h4 className="text-white font-semibold mb-3">Company</h4>
-              <ul className="space-y-2 text-sm">
-                <li><Link href="#about" className="text-gray-400 hover:text-white">About</Link></li>
-                <li><Link href="#contact" className="text-gray-400 hover:text-white">Contact</Link></li>
-                <li><a href="#" className="text-gray-400 hover:text-white">Careers</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-white">Partners</a></li>
-              </ul>
-            </div>
-
-            {/* Legal */}
+            {/* Legal only */}
             <div>
               <h4 className="text-white font-semibold mb-3">Legal</h4>
               <ul className="space-y-2 text-sm">
                 <li><Link href="/terms" className="text-gray-400 hover:text-white">Terms &amp; Conditions</Link></li>
                 <li><Link href="/privacy" className="text-gray-400 hover:text-white">Privacy Policy</Link></li>
-                <li><a href="#" className="text-gray-400 hover:text-white">Security</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-white">Status</a></li>
               </ul>
             </div>
           </div>
@@ -596,7 +541,7 @@ export default function MarketingHome() {
               © {new Date().getFullYear()} LeadSentra. All rights reserved.
             </div>
             <div className="text-xs text-gray-500">
-              Built for growth teams. Need a DPA? <a href="mailto:legal@LeadSentra.app" className="text-emerald-400 hover:underline">Contact legal</a>.
+              Built for growth teams. Need a DPA? <a href="mailto:info@raceinnovations.in" className="text-emerald-400 hover:underline">Contact legal</a>.
             </div>
           </div>
         </div>

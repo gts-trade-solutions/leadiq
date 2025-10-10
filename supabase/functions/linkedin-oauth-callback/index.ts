@@ -8,36 +8,48 @@ const SRK = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LI_CLIENT_ID = Deno.env.get("LINKEDIN_CLIENT_ID")!;
 const LI_CLIENT_SECRET = Deno.env.get("LINKEDIN_CLIENT_SECRET")!;
 const LI_REDIRECT = Deno.env.get("LINKEDIN_REDIRECT_URI")!;
-const APP_BASE_URL = Deno.env.get("APP_BASE_URL")!; // e.g. https://app.example.com
 
-function redirectTo(pathAndQuery: string) {
-  const url = `${APP_BASE_URL}${pathAndQuery.startsWith('/') ? '' : '/'}${pathAndQuery}`;
-  return Response.redirect(url, 302);
-}
+const TXT = { headers: { "Content-Type": "text/plain; charset=utf-8" } };
 
 async function j(url: string, init: RequestInit) {
   const r = await fetch(url, init);
   const t = await r.text();
   if (!r.ok) throw new Error(t);
-  try { return JSON.parse(t); } catch { return t; }
+  try {
+    return JSON.parse(t);
+  } catch {
+    return t;
+  }
 }
 
 serve(async (req) => {
   const u = new URL(req.url);
-  const code  = u.searchParams.get("code")  || "";
+  const code = u.searchParams.get("code") || "";
   const state = u.searchParams.get("state") || "";
-  const err   = u.searchParams.get("error");
-  const desc  = u.searchParams.get("error_description") || "";
+  const err = u.searchParams.get("error");
+  const desc = u.searchParams.get("error_description") || "";
 
-  // Error from LinkedIn: redirect back with details
+  // LinkedIn sent an error back
   if (err) {
-    return redirectTo(`/admin/multi-channel?li_error=${encodeURIComponent(err)}&li_desc=${encodeURIComponent(desc)}`);
+    return new Response(
+      `LinkedIn error: ${err}${
+        desc ? " — " + desc : ""
+      }. Close this tab and return to the app.`,
+      TXT
+    );
+  }
+
+  if (!code || !state) {
+    return new Response(
+      "Missing code or state. Close this tab and return to the app.",
+      TXT
+    );
   }
 
   try {
     const admin = createClient(SUPABASE_URL, SRK);
 
-    // 1) Validate state -> which user
+    // 1) Validate state -> user
     const { data: st, error: stErr } = await admin
       .from("social_oauth_states")
       .select("user_id, provider")
@@ -62,16 +74,18 @@ serve(async (req) => {
     const expires_in = Number(tok.expires_in ?? 0);
     const expires_at = new Date(Date.now() + expires_in * 1000).toISOString();
 
-    // 3) OIDC identity
+    // 3) Optional OIDC identity
     let member_urn = "";
     try {
       const info = await j("https://api.linkedin.com/v2/userinfo", {
         headers: { Authorization: `Bearer ${access_token}` },
       });
       if (info?.sub) member_urn = `urn:li:person:${info.sub}`;
-    } catch { /* if missing, we still save token but can_post=false */ }
+    } catch {
+      /* ok */
+    }
 
-    // 4) Previous URN to detect "change"
+    // 4) Previous URN to detect identity change
     const { data: prev } = await admin
       .from("social_accounts")
       .select("member_urn")
@@ -80,23 +94,29 @@ serve(async (req) => {
       .maybeSingle();
     const prevUrn = prev?.member_urn || null;
 
-    // 5) Parse scopes → text[]
+    // 5) Parse scopes -> text[]
     const rawScope = typeof tok.scope === "string" ? tok.scope : "";
     const scopeArr = rawScope.split(/[,\s]+/).filter(Boolean);
 
-    // 6) Upsert account
-    const up = await admin.from("social_accounts").upsert({
-      user_id: st.user_id,
-      provider: "linkedin",
-      access_token,
-      expires_at,
-      scope: scopeArr,
-      member_urn: member_urn || null,
-      updated_at: new Date().toISOString(),
-    }).select("user_id");
+    // 6) Upsert account (true UPSERT on (user_id, provider))
+    const up = await admin
+      .from("social_accounts")
+      .upsert(
+        {
+          user_id: st.user_id,
+          provider: "linkedin",
+          access_token,
+          expires_at,
+          scope: scopeArr,
+          member_urn: member_urn || null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,provider" }
+      )
+      .select("user_id");
     if (up.error) throw up.error;
 
-    // 7) Increment "changes_used" if identity switched (prev != new)
+    // 7) Increment "changes_used" if identity switched (cap at 2)
     if (member_urn && prevUrn && prevUrn !== member_urn) {
       const { data: usage } = await admin
         .from("social_connection_usage")
@@ -106,20 +126,28 @@ serve(async (req) => {
         .maybeSingle();
       const used = usage?.changes_used ?? 0;
       if (used < 2) {
-        await admin.from("social_connection_usage").upsert({
-          user_id: st.user_id,
-          provider: "linkedin",
-          changes_used: used + 1,
-          updated_at: new Date().toISOString(),
-        });
+        await admin.from("social_connection_usage").upsert(
+          {
+            user_id: st.user_id,
+            provider: "linkedin",
+            changes_used: used + 1,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,provider" }
+        );
       }
     }
 
-    // 8) Clean state & redirect to your app
+    // 8) Clean state & respond with plain text
     await admin.from("social_oauth_states").delete().eq("state", state);
-    return redirectTo(`/admin/multi-channel?li=connected&identity_ok=${member_urn ? 'true' : 'false'}`);
 
+    return new Response("LinkedIn connected. You can close this tab.", TXT);
   } catch (e: any) {
-    return redirectTo(`/admin/multi-channel?li_error=callback_error&li_desc=${encodeURIComponent(e?.message || String(e))}`);
+    return new Response(
+      `LinkedIn error: ${
+        e?.message || String(e)
+      }. Close this tab and return to the app.`,
+      TXT
+    );
   }
 });

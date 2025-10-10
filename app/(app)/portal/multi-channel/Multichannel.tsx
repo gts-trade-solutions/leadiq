@@ -1,5 +1,5 @@
 "use client";
-export const dynamic = "force-dynamic";
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
@@ -17,19 +17,25 @@ import {
   RefreshCcw,
   LogOut,
   Facebook as FacebookIcon,
+  Instagram as InstagramIcon,
+  Send as TelegramIcon,
+  MessageCircle as WhatsAppIcon,
+  Lock,
 } from "lucide-react";
-// Keep import to avoid breaking build if you re-enable later
-import FacebookPanel from "@/components/FacebookPanelv-2";
-
+import FacebookPanel from "@/components/FacebookPanel";
+import WhatsAppPanel from "@/components/WhatsappPanel";
 type Draft = { headline?: string; body?: string; hashtags?: string[] } | null;
 type DalleSize = "1792x1024" | "1024x1024" | "1024x1792";
 
-const MULTICHANNEL_PATH = "/admin/multi-channel";
+type Channel =
+  | "LinkedIn"
+  | "Facebook"
+  | "Instagram"
+  | "Telegram"
+  | "WhatsApp"
+  | "Email";
 
-// Feature flags (hide other channels without touching backend)
-const ENABLE_FACEBOOK = false;
-const ENABLE_EMAIL = false;
-const ENABLE_PHONE = false;
+const MULTICHANNEL_PATH = "/admin/multi-chann";
 
 export default function MultiChannelPage() {
   const router = useRouter();
@@ -51,7 +57,10 @@ export default function MultiChannelPage() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Not signed in");
+    if (!session?.access_token) {
+      // not signed in -> guard will handle redirect, but throw to stop callers
+      throw new Error("Not signed in");
+    }
     const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/${name}`;
     const res = await fetch(url, {
       ...init,
@@ -75,10 +84,22 @@ export default function MultiChannelPage() {
 
   // ---------- Auth guard ----------
   const [authReady, setAuthReady] = useState(false);
+  // useEffect(() => {
+  //   (async () => {
+  //     const { data: { session } } = await supabase.auth.getSession();
+  //     if (!session) {
+  //       router.replace(`/login?next=${encodeURIComponent(MULTICHANNEL_PATH)}`);
+  //       return;
+  //     }
+  //     setAuthReady(true);
+  //   })();
+  // }, [router, supabase]);
 
   // ---------- UI state ----------
-  type Tabs = "LinkedIn" | "Facebook" | "Email" | "Phone";
-  const [activeTab, setActiveTab] = useState<Tabs>("LinkedIn");
+  // was: 'LinkedIn'|'Email'|'Phone'
+  const [activeTab, setActiveTab] = useState<
+    "LinkedIn" | "Facebook" | "Email" | "Phone"
+  >("LinkedIn");
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
@@ -91,7 +112,8 @@ export default function MultiChannelPage() {
   const [liConnecting, setLiConnecting] = useState(false);
   const [liConnected, setLiConnected] = useState(false);
   const [canPost, setCanPost] = useState(false);
-  const [changesLeft, setChangesLeft] = useState<number>(2);
+  const [changesLeft, setChangesLeft] = useState<number>(0);
+
   const [orgUrns, setOrgUrns] = useState<string[]>([]);
   const [targetUrn, setTargetUrn] = useState<string>("member");
 
@@ -106,6 +128,7 @@ export default function MultiChannelPage() {
   const [length, setLength] = useState<"short" | "medium" | "long">("medium");
   const [loadingOptimize, setLoadingOptimize] = useState(false);
   const [lastDraft, setLastDraft] = useState<Draft>(null);
+const [profileName, setProfileName] = useState<string>("");
 
   // Image
   const [imageMode, setImageMode] = useState<"upload" | "ai">("upload");
@@ -122,30 +145,54 @@ export default function MultiChannelPage() {
 
   const selectedImageUrl = imageMode === "upload" ? uploadPreview : genUrl;
 
-  // ---------- Effects (TOP-LEVEL ONLY) ----------
-  // 1) Boot auth
-  useEffect(() => {
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        router.replace(`/login?next=${encodeURIComponent(MULTICHANNEL_PATH)}`);
-        return;
-      }
-      setAuthReady(true);
-    })();
-  }, [router, supabase]);
+  // which channels are premium-locked
+  const premiumChannels: Channel[] = [
+    "Facebook",
+    "Instagram",
+    "Telegram",
+    "WhatsApp",
+    "Email",
+  ];
+  const isPremium = (ch: Channel) => premiumChannels.includes(ch);
 
-  // 2) Initial load after auth is ready
+  // prefilled mailto link
+  const contactMailHref = React.useMemo(() => {
+    const to = "kh@raceinnovations.in";
+    const subject = encodeURIComponent(
+      "Premium access enquiry – Multichannel campaigns"
+    );
+    const body = encodeURIComponent(
+      `Hi Race Innovations Team,
+
+I'd like to unlock premium features (Instagram, Telegram, Facebook, WhatsApp, Email) for multi-channel campaigns.
+
+Account email: ${userEmail ?? "(not signed in)"}
+
+Please share steps and pricing.
+
+Thanks.`
+    );
+    return `mailto:${to}?subject=${subject}&body=${body}`;
+  }, [userEmail]);
+
+function nameFromEmail(email?: string | null) {
+  if (!email) return "there";
+  return email.split("@")[0];
+}
+
+
+
+  // ---------- Initial load ----------
   useEffect(() => {
     if (!authReady) return;
+
     (async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       setUserEmail(user?.email ?? null);
 
+      // show message from callback redirect (?li / ?li_error)
       const liOk = qs.get("li");
       const liErr = qs.get("li_error");
       const liDesc = qs.get("li_desc");
@@ -156,15 +203,6 @@ export default function MultiChannelPage() {
     })().catch((e) => setError(String(e?.message || e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady]);
-
-  // 3) If a hidden tab becomes active via history, push back to LinkedIn
-  useEffect(() => {
-    const hiddenNow =
-      (activeTab === "Facebook" && !ENABLE_FACEBOOK) ||
-      (activeTab === "Email" && !ENABLE_EMAIL) ||
-      (activeTab === "Phone" && !ENABLE_PHONE);
-    if (hiddenNow) setActiveTab("LinkedIn");
-  }, [activeTab]);
 
   // ---------- Data helpers ----------
   async function refreshWallet() {
@@ -195,9 +233,9 @@ export default function MultiChannelPage() {
       setLiConnected(!!data.connected);
       setCanPost(!!data.can_post);
       setOrgUrns(data.org_urns || []);
-      setChangesLeft(
-        typeof data.changes_left === "number" ? data.changes_left : 2
-      );
+      if (typeof data.changes_left === "number") {
+        setChangesLeft(data.changes_left);
+      }
       if (data.connected && data.can_post && targetUrn === "member")
         setTargetUrn("member");
     } catch (e: any) {
@@ -207,9 +245,9 @@ export default function MultiChannelPage() {
     }
   }
 
-  // bounded poller after connect
+  // bounded poller after connect (for redirects without postMessage)
   async function pollLinkedInBounded() {
-    const delays = [700, 1200, 2000, 3000, 5000, 7000, 8000];
+    const delays = [700, 1200, 2000, 3000, 5000, 7000, 8000]; // ~28s
     for (const d of delays) {
       try {
         const s = await callFn<{
@@ -221,7 +259,11 @@ export default function MultiChannelPage() {
         if (s.connected) {
           setLiConnected(true);
           setCanPost(!!s.can_post);
+          if (typeof s.changes_left === "number")
+            setChangesLeft(s.changes_left);
           if (s.can_post) setNotice("LinkedIn connected.");
+          // ensure we fully sync everything (changes_left, orgs, etc.)
+          await refreshLinkedIn();
           return true;
         }
       } catch {
@@ -249,7 +291,9 @@ export default function MultiChannelPage() {
         setLiConnecting(false);
         return;
       }
+      // open popup – LinkedIn will redirect back to /admin/multi-channel inside popup
       window.open(data.authUrl, "li_oauth", "width=600,height=700");
+      // poll to detect connection flip
       const ok = await pollLinkedInBounded();
       if (!ok)
         setError(
@@ -413,21 +457,27 @@ export default function MultiChannelPage() {
   }
 
   // ---------- UI ----------
+
   const Tab = ({
     name,
     icon: Icon,
+    disabled,
   }: {
-    name: "LinkedIn" | "Facebook" | "Email" | "Phone";
-    icon: any;
+    name: Channel;
+    icon: React.ComponentType<{ className?: string }>;
+    disabled?: boolean;
   }) => (
     <button
-      onClick={() => setActiveTab(name)}
-      className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 ${
-        activeTab === name
+      onClick={() => !disabled && setActiveTab(name)}
+      disabled={disabled}
+      aria-disabled={disabled}
+      className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+        disabled
+          ? "text-gray-500 border-transparent cursor-not-allowed opacity-60"
+          : activeTab === name
           ? "text-emerald-400 border-emerald-400"
           : "text-gray-400 border-transparent hover:text-gray-300"
       }`}
-      type="button"
     >
       <Icon className="w-4 h-4" />
       {name}
@@ -436,43 +486,72 @@ export default function MultiChannelPage() {
 
   const postEnabled = liConnected && canPost && postBody.trim().length > 0;
 
+  // if (!authReady) {
+  //   return <div className="p-8 text-sm text-gray-400">Loading…</div>;
+  // }
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl text-white font-semibold">
-            LinkedIn Campaigns
+            Multi-Channel Campaigns
           </h1>
-          <p className="text-sm text-gray-400">
-            {userEmail ? `Signed in as ${userEmail}` : "Please sign in."}
-          </p>
+
+          {/* <p className="text-sm text-gray-400">{userEmail ? `Signed in as ${userEmail}` : 'Please sign in.'}</p> */}
         </div>
-        <button
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm"
-          type="button"
-        >
-          <Plus className="w-4 h-4" /> Create Sequence
-        </button>
+        {/* <button className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm">
+          <Plus className="w-4 h-4"/> Create Sequence
+        </button> */}
       </div>
 
-      <div className="flex items-center gap-2 text-sm text-gray-300">
-        <Coins className="w-4 h-4" /> Balance:&nbsp;
-        {loadingBal ? (
-          <span className="opacity-70">loading…</span>
-        ) : (
-          <span className="text-emerald-400 font-medium">{balance}</span>
-        )}{" "}
-        credits
-      </div>
+      {/* <div className="flex items-center gap-2 text-sm text-gray-300">
+        <Coins className="w-4 h-4"/> Balance:&nbsp;
+        {loadingBal ? <span className="opacity-70">loading…</span> : <span className="text-emerald-400 font-medium">{balance}</span>} credits
+      </div> */}
 
       <div className="bg-[#0b0f14] border border-gray-800 rounded-xl p-5">
-        {/* Tabs row — only show enabled channels */}
+        {/* Premium banner */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 text-amber-300 bg-amber-500/10 border border-amber-600/30 rounded-md px-3 py-2 text-xs">
+            <Lock className="w-3 h-3" />
+            <span>
+              Some channels (Facebook, Instagram, Telegram, WhatsApp) are
+              disabled on your plan.{" "}
+              <a
+                href={contactMailHref}
+                className="underline hover:no-underline text-amber-200"
+              >
+                Contact us
+              </a>{" "}
+              to unlock premium access.
+            </span>
+          </div>
+        </div>
         <div className="flex items-center justify-between border-b border-gray-800 mb-6 pb-2 gap-2 flex-wrap">
-          <div className="flex">
+          <div className="flex flex-wrap">
             <Tab name="LinkedIn" icon={MessageSquare} />
-            {ENABLE_FACEBOOK && <Tab name="Facebook" icon={FacebookIcon} />}
-            {ENABLE_EMAIL && <Tab name="Email" icon={Mail} />}
-            {ENABLE_PHONE && <Tab name="Phone" icon={Phone} />}
+            {/* premium-locked tabs (disabled) */}
+            <Tab
+              name="Facebook"
+              icon={FacebookIcon}
+              disabled={isPremium("Facebook")}
+            />
+            <Tab
+              name="Instagram"
+              icon={InstagramIcon}
+              disabled={isPremium("Instagram")}
+            />
+            <Tab
+              name="Telegram"
+              icon={TelegramIcon}
+              disabled={isPremium("Telegram")}
+            />
+            <Tab
+              name="WhatsApp"
+              icon={WhatsAppIcon}
+              disabled={isPremium("WhatsApp")}
+            />
           </div>
 
           {activeTab === "LinkedIn" && (
@@ -508,14 +587,12 @@ export default function MultiChannelPage() {
                     onClick={refreshLinkedIn}
                     className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-gray-500 inline-flex items-center gap-1"
                     title="Refresh status"
-                    type="button"
                   >
                     <RefreshCcw className="w-3 h-3" /> Refresh
                   </button>
                   <button
                     onClick={disconnectLinkedIn}
                     className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-gray-500 inline-flex items-center gap-1"
-                    type="button"
                   >
                     <LogOut className="w-3 h-3" /> Disconnect
                   </button>
@@ -526,7 +603,6 @@ export default function MultiChannelPage() {
                     onClick={connectLinkedIn}
                     disabled={liConnecting || changesLeft <= 0}
                     className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-gray-500 inline-flex items-center gap-2 disabled:opacity-60"
-                    type="button"
                   >
                     {liConnecting ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -544,15 +620,20 @@ export default function MultiChannelPage() {
               )}
             </div>
           )}
+          <button
+                    type="button"
+                    onClick={refreshLinkedIn}
+                    className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-gray-500 inline-flex items-center gap-1"
+                  >
+                    <RefreshCcw className="w-3 h-3" /> Refresh status
+                  </button>
         </div>
 
-        {/* LINKEDIN ONLY UI */}
         {activeTab === "LinkedIn" && (
           <form
             onSubmit={(e) => e.preventDefault()}
             className="grid lg:grid-cols-3 gap-6"
           >
-            {/* LEFT: Editor */}
             <div className="space-y-4 lg:col-span-2">
               <label className="text-sm text-gray-300">
                 Your LinkedIn Post
@@ -565,91 +646,56 @@ export default function MultiChannelPage() {
                 placeholder="Type or paste your post here…"
               />
 
-              {/* Polished Optimization section */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
+              <div className="grid md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
                   <label className="text-xs text-gray-400">
-                    Optimization hint{" "}
-                    <span className="text-gray-500">(costs 1 credit)</span>
+                    Optimization hint (1 credit)
                   </label>
+                  <input
+                    className="w-full bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
+                    value={optPrompt}
+                    onChange={(e) => setOptPrompt(e.target.value)}
+                    placeholder="Tell AI how to improve the copy"
+                  />
                 </div>
-
-                <div className="flex flex-col md:flex-row gap-3">
-                  <div className="flex-1">
-                    <input
-                      className="w-full bg-transparent border border-gray-700 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      value={optPrompt}
-                      onChange={(e) => setOptPrompt(e.target.value)}
-                      placeholder="Tell AI how to improve the copy"
-                    />
-                  </div>
-
-                  {/* Compact tone/length controls */}
-                  <div className="grid grid-cols-2 gap-2 md:w-[320px]">
-                    <select
-                      className="bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
-                      value={tone}
-                      onChange={(e) => setTone(e.target.value as any)}
-                      aria-label="Tone"
-                    >
-                      <option value="neutral">neutral</option>
-                      <option value="friendly">friendly</option>
-                      <option value="persuasive">persuasive</option>
-                      <option value="technical">technical</option>
-                    </select>
-                    <select
-                      className="bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
-                      value={length}
-                      onChange={(e) => setLength(e.target.value as any)}
-                      aria-label="Length"
-                    >
-                      <option value="short">short</option>
-                      <option value="medium">medium</option>
-                      <option value="long">long</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <button
-                    type="button"
-                    onClick={optimize}
-                    disabled={loadingOptimize}
-                    className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm disabled:opacity-60"
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    className="bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
+                    value={tone}
+                    onChange={(e) => setTone(e.target.value as any)}
                   >
-                    {loadingOptimize ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Wand2 className="w-4 h-4" />
-                    )}
-                    {loadingOptimize ? "Optimizing…" : "Optimize with AI"}
-                  </button>
+                    <option value="neutral">neutral</option>
+                    <option value="friendly">friendly</option>
+                    <option value="persuasive">persuasive</option>
+                    <option value="technical">technical</option>
+                  </select>
+                  <select
+                    className="bg-transparent border border-gray-700 rounded-lg p-2 text-sm"
+                    value={length}
+                    onChange={(e) => setLength(e.target.value as any)}
+                  >
+                    <option value="short">short</option>
+                    <option value="medium">medium</option>
+                    <option value="long">long</option>
+                  </select>
                 </div>
               </div>
 
-              {lastDraft && (
-                <div className="border border-gray-800 rounded-lg p-3 space-y-2">
-                  <div className="text-xs uppercase tracking-wide text-gray-400">
-                    AI Draft (reference)
-                  </div>
-                  {lastDraft.headline && (
-                    <div className="font-medium text-white">
-                      {lastDraft.headline}
-                    </div>
-                  )}
-                  <div className="text-sm whitespace-pre-wrap text-gray-200">
-                    {lastDraft.body}
-                  </div>
-                  {!!lastDraft.hashtags?.length && (
-                    <div className="text-xs text-gray-400">
-                      {lastDraft.hashtags.map((h) => `#${h}`).join(" ")}
-                    </div>
-                  )}
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={optimize}
+                disabled={loadingOptimize}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm disabled:opacity-60"
+              >
+                {loadingOptimize ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Wand2 className="w-4 h-4" />
+                )}
+                {loadingOptimize ? "Optimizing…" : "Optimize with AI"}
+              </button>
             </div>
 
-            {/* RIGHT: Image + Preview + Publish */}
             <div className="space-y-6">
               <div className="border border-gray-800 rounded-lg p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -682,7 +728,7 @@ export default function MultiChannelPage() {
                     Generate with AI
                   </button>
                 </div>
-
+</div>
                 {imageMode === "upload" && (
                   <div className="space-y-2">
                     <input
@@ -773,15 +819,7 @@ export default function MultiChannelPage() {
 
               <div className="border border-gray-800 rounded-lg p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm text-gray-300">Final</div>
-                  <button
-                    type="button"
-                    onClick={refreshLinkedIn}
-                    className="text-xs px-2 py-1 rounded border border-gray-700 hover:border-gray-500 inline-flex items-center gap-1"
-                  >
-                    <RefreshCcw className="w-3 h-3" /> Refresh status
-                  </button>
-                </div>
+                  
                 <div className="text-xs text-gray-500">Review and post.</div>
                 <div className="flex gap-2">
                   <button
@@ -790,11 +828,11 @@ export default function MultiChannelPage() {
                     disabled={!postEnabled}
                     className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm disabled:opacity-60"
                   >
-                    <Rocket className="w-4 h-4" />
+                    <Rocket className="w-4 h-4" />{" "}
                     {postEnabled
                       ? "Post to LinkedIn"
                       : liConnected
-                      ? "Complete sign-in & type a post"
+                      ? "type a post"
                       : "Connect LinkedIn"}
                   </button>
                 </div>
@@ -809,25 +847,24 @@ export default function MultiChannelPage() {
             </div>
           </form>
         )}
-
-        {/* Hidden/disabled channels */}
-        {ENABLE_FACEBOOK && activeTab === "Facebook" && (
+        {activeTab === "Facebook" && (
           <FacebookPanel
             supabase={supabase}
             callFn={callFn}
             refreshWallet={refreshWallet}
           />
         )}
-        {ENABLE_EMAIL && activeTab === "Email" && (
-          <div className="text-sm text-gray-400">
-            Email composer coming soon.
-          </div>
-        )}
-        {ENABLE_PHONE && activeTab === "Phone" && (
-          <div className="text-sm text-gray-400">
-            Phone/SMS composer coming soon.
-          </div>
-        )}
+        {/* {activeTab==='Phone' && (
+  <WhatsAppPanel
+   
+    callFn={callFn}
+ 
+  />
+)} */}
+
+        {/* {activeTab!=='LinkedIn' && (
+          <div className="text-sm text-gray-400">Email/Phone tabs will be wired next.</div>
+        )} */}
 
         {(error || notice) && (
           <div className="mt-6">
@@ -837,13 +874,6 @@ export default function MultiChannelPage() {
               </p>
             )}
             {notice && <p className="text-sm text-emerald-400">{notice}</p>}
-          </div>
-        )}
-
-        {/* Loading mask while auth bootstraps, but hooks still run above */}
-        {!authReady && (
-          <div className="mt-6 p-4 text-sm text-gray-400 border border-gray-800 rounded-lg bg-[#0b0f14]">
-            Initializing session…
           </div>
         )}
       </div>

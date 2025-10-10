@@ -17,44 +17,44 @@ import {
 const ALL_ITEMS = [
   // Lead Generation
   { name: 'Dashboard', href: '/app', icon: BarChart3, enabled: false },
-  { name: 'Companies', href: '/admin/companies', icon: Building2, enabled: true },
-  { name: 'Contacts', href: '/admin/contacts', icon: Users, enabled: true },
-  { name: 'Contact ID Manager', href: '/admin/contact-id-manager', icon: UserCheck, enabled: false },
-  { name: 'Import Failures', href: '/admin/import-failures', icon: AlertCircle, enabled: false },
+  { name: 'Companies', href: '/portal/companies', icon: Building2, enabled: true },
+  { name: 'Contacts', href: '/portal/contacts', icon: Users, enabled: true },
+  { name: 'Contact ID Manager', href: '/portal/contact-id-manager', icon: UserCheck, enabled: false },
+  { name: 'Import Failures', href: '/portal/import-failures', icon: AlertCircle, enabled: false },
 
   // Outreach & Engagement
-  { name: 'Multi-Channel', href: '/admin/multi-channel', icon: Send, enabled: true },
-  { name: 'Campaigns', href: '/admin/campaigns', icon: Target, enabled: true },
-  { name: 'Sequences', href: '/admin/sequences', icon: Workflow, enabled: false },
+  { name: 'Multi-Channel', href: '/portal/multi-channel', icon: Send, enabled: true },
+  { name: 'Campaigns', href: '/portal/campaigns', icon: Target, enabled: true },
+  { name: 'Sequences', href: '/portal/sequences', icon: Workflow, enabled: false },
 
   // Relationship Management
-  { name: 'CRM Automation', href: '/admin/crm-automation', icon: Bot, enabled: false },
-  { name: 'Pipeline', href: '/admin/pipeline', icon: TrendingUp, enabled: false },
+  { name: 'CRM Automation', href: '/portal/crm-automation', icon: Bot, enabled: false },
+  { name: 'Pipeline', href: '/portal/pipeline', icon: TrendingUp, enabled: false },
 
   // Intelligence & Analytics
-  { name: 'AI Intelligence', href: '/admin/ai-intelligence', icon: Bot, enabled: false },
-  { name: 'Data Intelligence', href: '/admin/data-intelligence', icon: BarChart, enabled: false },
-  { name: 'Data Marketplace', href: '/admin/data-marketplace', icon: ShoppingCart, enabled: false },
-  { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, enabled: false },
-  { name: 'Reporting', href: '/admin/reporting', icon: FileText, enabled: false },
+  { name: 'AI Intelligence', href: '/portal/ai-intelligence', icon: Bot, enabled: false },
+  { name: 'Data Intelligence', href: '/portal/data-intelligence', icon: BarChart, enabled: false },
+  { name: 'Data Marketplace', href: '/portal/data-marketplace', icon: ShoppingCart, enabled: false },
+  { name: 'Analytics', href: '/portal/analytics', icon: BarChart3, enabled: false },
+  { name: 'Reporting', href: '/portal/reporting', icon: FileText, enabled: false },
 
   // Business Operations
-  { name: 'Billing', href: '/admin/billing', icon: CreditCard, enabled: false },
-  { name: 'Users & Roles', href: '/admin/users-roles', icon: Users, enabled: false },
-  { name: 'Settings', href: '/admin/settings', icon: Settings, enabled: false },
+  { name: 'Billing', href: '/portal/billing', icon: CreditCard, enabled: false },
+  { name: 'Users & Roles', href: '/portal/users-roles', icon: Users, enabled: false },
+  { name: 'Settings', href: '/portal/settings', icon: Settings, enabled: false },
 
   // Admin Controls
-  { name: 'Platform Admin', href: '/admin/platform-admin', icon: Shield, enabled: false },
-  { name: 'Marketing', href: '/admin/marketing', icon: Target, enabled: false },
-  { name: 'Enterprise', href: '/admin/enterprise', icon: Briefcase, enabled: false },
-  { name: 'Scalability', href: '/admin/scalability', icon: TrendingUp, enabled: false },
-  { name: 'Integrations', href: '/admin/integrations', icon: Bot, enabled: false },
-  { name: 'Mobile', href: '/admin/mobile', icon: Smartphone, enabled: false },
-  { name: 'CMS', href: '/admin/cms', icon: Database, enabled: false },
+  { name: 'Platform Admin', href: '/portal/platform-admin', icon: Shield, enabled: false },
+  { name: 'Marketing', href: '/portal/marketing', icon: Target, enabled: false },
+  { name: 'Enterprise', href: '/portal/enterprise', icon: Briefcase, enabled: false },
+  { name: 'Scalability', href: '/portal/scalability', icon: TrendingUp, enabled: false },
+  { name: 'Integrations', href: '/portal/integrations', icon: Bot, enabled: false },
+  { name: 'Mobile', href: '/portal/mobile', icon: Smartphone, enabled: false },
+  { name: 'CMS', href: '/portal/cms', icon: Database, enabled: false },
 
   // Support
-  { name: 'Support Sessions', href: '/admin/support', icon: MessageSquare, enabled: false },
-  { name: 'Real-Time Activity', href: '/admin/activity', icon: Activity, enabled: false },
+  { name: 'Support Sessions', href: '/portal/support', icon: MessageSquare, enabled: false },
+  { name: 'Real-Time Activity', href: '/portal/activity', icon: Activity, enabled: false },
 ];
 
 export default function Sidebar() {

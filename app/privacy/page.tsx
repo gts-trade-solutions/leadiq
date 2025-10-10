@@ -1,27 +1,9 @@
 "use client";
-
 import Link from "next/link";
-import {
-  BarChart3,
-  Lock,
-  Shield,
-  Database,
-  Cookie,
-  Globe2,
-  ShieldCheck,
-  Clock4,
-  UserCheck,
-  Info,
-} from "lucide-react";
+import { BarChart3, Lock, ShieldCheck, Cookie, Globe2, UserCheck, Gavel } from "lucide-react";
 
-export default function PrivacyPage() {
+export default function Page() {
   const year = new Date().getFullYear();
-  const lastUpdated = new Date().toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-
   return (
     <div className="min-h-screen bg-gray-950 text-gray-300">
       {/* Top Nav */}
@@ -34,10 +16,7 @@ export default function PrivacyPage() {
             <span className="text-xl font-semibold text-white">LeadSentra</span>
           </Link>
           <div className="flex items-center gap-6">
-            <Link
-              href="/terms"
-              className="text-sm text-gray-300 hover:text-white"
-            >
+            <Link href="/terms" className="text-sm text-gray-300 hover:text-white">
               Terms
             </Link>
             <Link
@@ -55,56 +34,24 @@ export default function PrivacyPage() {
         <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-900/20 px-3 py-1">
             <Lock className="h-4 w-4 text-emerald-400" />
-            <span className="text-xs font-medium text-emerald-300">
-              Privacy
-            </span>
+            <span className="text-xs font-medium text-emerald-300">Privacy (India)</span>
           </div>
 
-          <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-end">
-            <div>
-              <h1 className="text-4xl font-bold tracking-tight text-white md:text-5xl">
-                Privacy Policy
-              </h1>
-              {/* <p className="mt-3 max-w-2xl text-gray-400">
-                How LeadSentra collects, uses, and protects information when you use our platform,
-                website, and integrations.
-              </p> */}
-            </div>
-
-            {/* <div className="rounded-xl border border-gray-800 bg-gray-900 px-4 py-3 text-sm text-gray-400">
-              <span className="mr-2 inline-flex items-center gap-2">
-                <Info className="h-4 w-4 text-emerald-400" />
-                Last updated:
-              </span>
-              <span className="font-medium text-gray-300">{lastUpdated}</span>
-            </div> */}
-          </div>
+          <h1 className="text-4xl font-bold tracking-tight text-white md:text-5xl">Privacy Policy</h1>
 
           {/* At-a-glance */}
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard
-              icon={<Database className="h-4 w-4 text-emerald-400" />}
-              title="What we collect"
-            >
-              Account, usage, billing, and professional contact data.
+            <StatCard icon={<Gavel className="h-4 w-4 text-emerald-400" />} title="Laws we follow">
+              DPDP Act 2023, IT Act/SPDI Rules, TRAI anti-UCC norms.
             </StatCard>
-            <StatCard
-              icon={<Shield className="h-4 w-4 text-emerald-400" />}
-              title="How we use it"
-            >
-              To operate, improve, secure, and support the Services.
+            <StatCard icon={<UserCheck className="h-4 w-4 text-emerald-400" />} title="Your rights">
+              Access, correction, erasure, grievance redressal.
             </StatCard>
-            <StatCard
-              icon={<UserCheck className="h-4 w-4 text-emerald-400" />}
-              title="Your choices"
-            >
-              Access the applicable data.
+            <StatCard icon={<ShieldCheck className="h-4 w-4 text-emerald-400" />} title="Security">
+              Reasonable security practices; encryption in transit.
             </StatCard>
-            <StatCard
-              icon={<ShieldCheck className="h-4 w-4 text-emerald-400" />}
-              title="Security"
-            >
-              Encryption in transit, access controls, and monitoring.
+            <StatCard icon={<Cookie className="h-4 w-4 text-emerald-400" />} title="Cookies">
+              Auth, preferences, analytics, fraud prevention.
             </StatCard>
           </div>
         </div>
@@ -114,231 +61,111 @@ export default function PrivacyPage() {
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid gap-10 lg:grid-cols-12">
           {/* Main */}
-          <section className="space-y-10 lg:col-span-8">
-            <Section id="scope" title="1. Scope">
+          <section className="space-y-8 lg:col-span-8">
+            <Section id="scope" title="1) Scope & Who We Are">
               <p>
-                This Privacy Policy describes how LeadSentra (“we”, “us”)
-                handles information when you visit our websites, use our
-                applications and APIs, or otherwise interact with our sales
-                intelligence platform (collectively, the “Services”). Use of the
-                Services is also governed by our{" "}
-                <Link
-                  href="/terms"
-                  className="text-emerald-400 hover:underline"
-                >
-                  Terms of Service
-                </Link>
-                .
+                This Policy explains how <span className="font-medium">LeadSentra</span> ("we", "us") collects and uses information when you use our website, platform, and APIs (the "Services"). By using the Services you also agree to our <Link href="/terms" className="text-emerald-400 hover:underline">Terms</Link>.
               </p>
             </Section>
 
-            <Section id="data-we-collect" title="2. Data We Collect">
+            <Section id="data" title="2) Data We Collect (short)">
               <ul className="list-disc space-y-2 pl-6">
-                <li>
-                  <span className="font-medium">Account &amp; Billing:</span>{" "}
-                  name, email, company, role, authentication identifiers;
-                  billing details and transaction records.
-                </li>
-                <li>
-                  <span className="font-medium">Usage &amp; Device:</span> log
-                  data, IP address, device/browser info, product telemetry, and
-                  support communications.
-                </li>
-                <li>
-                  <span className="font-medium">Payment:</span> processed by our
-                  payment provider; we receive limited billing metadata (no full
-                  card numbers).
-                </li>
-                <li>
-                  <span className="font-medium">Business Contact Data:</span>{" "}
-                  professional profiles and company information from public
-                  sources, partners, and user contributions to help customers
-                  find and engage relevant prospects.
-                </li>
-                <li>
-                  <span className="font-medium">
-                    Cookies &amp; Similar Tech:
-                  </span>{" "}
-                  for authentication, preferences, analytics, performance, and
-                  fraud prevention.
-                </li>
+                <li><span className="font-medium">Identity & contact</span>: name, email, phone, company, role.</li>
+                <li><span className="font-medium">Usage & device</span>: IP, logs, device/browser, support chats.</li>
+                <li><span className="font-medium">Transactions</span>: billing metadata; payments handled by our provider (no card numbers stored by us).</li>
+                <li><span className="font-medium">B2B data</span>: public/partner professional info to power prospecting.</li>
+                <li><span className="font-medium">Cookies</span>: auth, preferences, analytics, performance, fraud prevention.</li>
               </ul>
             </Section>
 
-            <Section id="how-we-use-data" title="3. How We Use Data">
+            <Section id="use" title="3) Why We Use Data (lawful bases)">
               <ul className="list-disc space-y-2 pl-6">
-                <li>
-                  Provide, maintain, and improve the Services and your
-                  experience.
-                </li>
-                <li>
-                  Process purchases and manage credit balances and entitlements.
-                </li>
-                <li>
-                  Personalize features and recommendations; provide customer
-                  support.
-                </li>
-                <li>
-                  Monitor, detect, and prevent fraud, abuse, and security
-                  incidents.
-                </li>
-                <li>Comply with legal obligations and enforce our Terms.</li>
+                <li>Provide, secure, and improve the Services.</li>
+                <li>Support, analytics, and prevention of fraud/abuse.</li>
+                <li>Legal compliance and enforcement of our Terms.</li>
+                <li>Marketing with consent/legitimate use; you can opt out anytime.</li>
+              </ul>
+              <p className="text-sm text-gray-400">Aligned to India’s DPDP Act, 2023 and applicable rules.</p>
+            </Section>
+
+            <Section id="rights" title="4) Your Rights (India)">
+              <ul className="list-disc space-y-2 pl-6">
+                <li>Request access to or a copy of your personal data.</li>
+                <li>Ask us to correct or erase personal data that is inaccurate or no longer needed.</li>
+                <li>Withdraw consent where processing is based on consent.</li>
+                <li>Use our grievance process; if unresolved, you may escalate to the Data Protection Board of India.</li>
               </ul>
             </Section>
 
-            <Section id="legal-bases" title="4. Legal Bases (EEA/UK)">
-              <p>
-                Where GDPR or similar laws apply, we rely on legitimate
-                interests (e.g., to provide and secure the Service), contract
-                performance, consent where required, and legal obligation. You
-                may object to processing based on legitimate interests.
-              </p>
-            </Section>
-
-            <Section id="cookies" title="5. Cookies & Tracking">
-              <p>
-                We use cookies and similar technologies to keep you signed in,
-                remember preferences, analyze usage, and improve performance.
-                You can manage cookies in your browser settings. Some features
-                require cookies to function.
-              </p>
-            </Section>
-
-            <Section id="sharing" title="6. Sharing & Disclosure">
+            <Section id="sharing" title="5) Sharing">
               <ul className="list-disc space-y-2 pl-6">
-                <li>
-                  <span className="font-medium">Service Providers:</span>{" "}
-                  hosting, analytics, email delivery, payments, and support
-                  vendors acting on our behalf under contracts.
-                </li>
-                <li>
-                  <span className="font-medium">Integrations:</span> if you
-                  connect a CRM or outbound tool, we share data as needed per
-                  your configuration and the third party’s terms.
-                </li>
-                <li>
-                  <span className="font-medium">Compliance &amp; Safety:</span>{" "}
-                  to comply with law or protect rights, property, or safety.
-                </li>
-                <li>
-                  <span className="font-medium">Business Transfers:</span> as
-                  part of a merger, acquisition, financing, or asset sale
-                  consistent with this Policy.
-                </li>
+                <li><span className="font-medium">Vendors</span>: hosting, analytics, email, payments, support providers under contract.</li>
+                <li><span className="font-medium">At your direction</span>: integrations you connect (e.g., CRM or email tools).</li>
+                <li><span className="font-medium">Legal/safety</span>: to comply with law or protect rights.</li>
+                <li><span className="font-medium">Business transfers</span>: merger, acquisition, or financing.</li>
               </ul>
+              <p className="text-sm text-gray-400">We do not sell personal data.</p>
             </Section>
 
-            <Section id="international" title="7. International Transfers">
-              <p>
-                We may process data globally. Where required, we implement
-                appropriate safeguards (e.g., approved transfer mechanisms) for
-                cross-border data transfers.
-              </p>
+            <Section id="transfers" title="6) Storage & International Transfers">
+              <p>We may process data in India and other countries. Where transferred, we apply contractual and technical safeguards.</p>
             </Section>
 
-            <Section id="security" title="8. Security">
-              <p>
-                We implement administrative, technical, and physical safeguards
-                designed to protect information, including encryption in
-                transit, access controls, and monitoring. No method is 100%
-                secure, but we continually improve our practices.
-              </p>
+            <Section id="security" title="7) Security">
+              <p>We maintain <span className="font-medium">reasonable security practices</span> including encryption in transit, access controls, and monitoring. No method is 100% secure.</p>
             </Section>
 
-            <Section id="retention" title="9. Data Retention">
-              <p>
-                We retain information as long as necessary to provide the
-                Services, comply with legal obligations, resolve disputes, and
-                enforce agreements. We may de-identify or aggregate data for
-                longer retention.
-              </p>
+            <Section id="retention" title="8) Retention">
+              <p>We keep personal data only as long as needed for the purposes above or as required by law. We may retain de‑identified or aggregated data.</p>
             </Section>
 
-            <Section id="your-rights" title="10. Your Rights & Choices">
-              <ul className="list-disc space-y-2 pl-6">
-                <li>
-                  Access, correct, or delete your information, subject to legal
-                  limits.
-                </li>
-                <li>
-                  Object to or restrict certain processing; request data
-                  portability.
-                </li>
-                <li>
-                  Opt out of marketing communications (transactional notices may
-                  still be sent).
-                </li>
-                <li>
-                  Lodge a complaint with your local data protection authority
-                  where applicable.
-                </li>
-              </ul>
+            <Section id="marketing" title="9) Marketing, Email & SMS (TRAI/DND)">
+              <p>We send B2B emails/SMS only with consent or as allowed by preference settings. We honour Do‑Not‑Disturb and template/consent rules under TRAI’s UCC framework. You can opt out (e.g., reply "STOP" for SMS) or contact us.</p>
             </Section>
 
-            <Section id="children" title="11. Children">
-              <p>
-                The Services are not directed to children under 16, and we do
-                not knowingly collect personal information from them. If you
-                believe a child provided data, contact us and we will take
-                appropriate action.
-              </p>
+            <Section id="children" title="10) Children">
+              <p>Our Services are intended for users 18+ and not for children.</p>
             </Section>
 
-            <Section id="controller" title="12. Data Controller & Contact">
-              <p>
-                LeadSentra is the controller of personal data processed under
-                this Policy unless stated otherwise. For requests or questions,
-                email{" "}
-                <a
-                  href="mailto:privacy@LeadSentra.app"
-                  className="text-emerald-400 hover:underline"
-                >
-                  privacy@LeadSentra.app
-                </a>
-                .
-              </p>
+            <Section id="contact" title="11) Contact (India)">
+              <div className="space-y-2">
+
+                <p>
+            
+                  Email: <a href="mailto:info@raceinnovations.in" className="text-emerald-400 hover:underline">info@raceinnovations.in</a><br />
+                </p>
+                <p className="text-sm text-gray-400">If you are not satisfied with our response, you may escalate to the Data Protection Board of India as per law.</p>
+              </div>
             </Section>
 
-            <Section id="changes" title="13. Changes to This Policy">
-              <p>
-                We may update this Policy from time to time. If changes are
-                material, we will provide reasonable notice via the Service or
-                by email. Your continued use after the effective date
-                constitutes acceptance of the updated Policy.
-              </p>
+            <Section id="changes" title="12) Changes">
+              <p>We may update this Policy. Material changes will be notified in product or by email. Continued use means you accept the updated Policy.</p>
             </Section>
           </section>
 
           {/* Right rail */}
           <aside className="lg:col-span-4">
             <div className="sticky top-24 space-y-6">
-              {/* TOC */}
               <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6">
-                <h3 className="mb-3 text-sm font-semibold text-white">
-                  Table of contents
-                </h3>
+                <h3 className="mb-3 text-sm font-semibold text-white">Table of contents</h3>
                 <nav className="text-sm">
                   <ul className="space-y-2">
                     {[
-                      ["scope", "Scope"],
-                      ["data-we-collect", "Data We Collect"],
-                      ["how-we-use-data", "How We Use Data"],
-                      ["legal-bases", "Legal Bases (EEA/UK)"],
-                      ["cookies", "Cookies & Tracking"],
-                      ["sharing", "Sharing & Disclosure"],
-                      ["international", "International Transfers"],
+                      ["scope", "Scope & Who We Are"],
+                      ["data", "Data We Collect"],
+                      ["use", "Why We Use Data"],
+                      ["rights", "Your Rights"],
+                      ["sharing", "Sharing"],
+                      ["transfers", "Storage & Transfers"],
                       ["security", "Security"],
-                      ["retention", "Data Retention"],
-                      ["your-rights", "Your Rights & Choices"],
+                      ["retention", "Retention"],
+                      ["marketing", "Marketing & SMS"],
                       ["children", "Children"],
-                      ["controller", "Data Controller & Contact"],
-                      ["changes", "Changes to This Policy"],
+                      ["contact", "Grievance Officer"],
+                      ["changes", "Changes"],
                     ].map(([id, label]) => (
-                      <li key={id}>
-                        <a
-                          href={`#${id}`}
-                          className="inline-block rounded-md px-2 py-1 text-gray-300 hover:bg-gray-800 hover:text-white"
-                        >
+                      <li key={id as string}>
+                        <a href={`#${id}`} className="inline-block rounded-md px-2 py-1 text-gray-300 hover:bg-gray-800 hover:text-white">
                           {label}
                         </a>
                       </li>
@@ -347,38 +174,11 @@ export default function PrivacyPage() {
                 </nav>
               </div>
 
-              {/* Cookie note */}
               <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6">
                 <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
-                  <Cookie className="h-4 w-4 text-emerald-400" /> Cookie
-                  preferences
+                  <Globe2 className="h-4 w-4 text-emerald-400" /> Cross‑border transfers
                 </div>
-                <p className="mb-4 text-sm text-gray-400">
-                  You can manage cookies in your browser. If you need a per-site
-                  toggle, we can add a cookie banner with granular controls.
-                </p>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-lg border border-emerald-700/40 bg-emerald-900/20 px-4 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-900/30"
-                  onClick={() =>
-                    alert(
-                      "Cookie preferences UI not implemented in this template."
-                    )
-                  }
-                >
-                  Open preferences
-                </button>
-              </div>
-
-              {/* Transfer note */}
-              <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6">
-                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
-                  <Globe2 className="h-4 w-4 text-emerald-400" /> Data transfers
-                </div>
-                <p className="text-sm text-gray-400">
-                  We use appropriate safeguards for cross-border transfers where
-                  required (e.g., approved contractual clauses).
-                </p>
+                <p className="text-sm text-gray-400">We use contractual and technical safeguards where data moves outside India.</p>
               </div>
             </div>
           </aside>
@@ -394,17 +194,15 @@ export default function PrivacyPage() {
             </div>
             <span className="text-xl font-semibold text-white">LeadSentra</span>
           </div>
-          <div className="text-sm text-gray-400">
-            © {year} LeadSentra. All rights reserved.
-          </div>
+          <div className="text-sm text-gray-400">© {year} LeadSentra. All rights reserved.</div>
         </div>
       </footer>
     </div>
   );
 }
 
-/* ---------- tiny helpers ---------- */
-function StatCard({ icon, title, children }) {
+/* ---------- helpers ---------- */
+function StatCard({ icon, title, children }: any) {
   return (
     <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-200">
@@ -415,14 +213,12 @@ function StatCard({ icon, title, children }) {
   );
 }
 
-function Section({ id, title, children }) {
+function Section({ id, title, children }: any) {
   return (
     <section id={id} className="scroll-mt-24">
       <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-6">
         <h2 className="mb-3 text-2xl font-semibold text-white">{title}</h2>
-        <div className="space-y-3 leading-relaxed text-gray-300">
-          {children}
-        </div>
+        <div className="space-y-3 leading-relaxed text-gray-300">{children}</div>
       </div>
     </section>
   );

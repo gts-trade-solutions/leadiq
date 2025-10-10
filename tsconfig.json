@@ -28,7 +28,7 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     "components/Topbar.jsx",
-    "app/(app)/admin/campaigns/page.ww"
+    "app/(app)/portal/campaigns/page.ww"
   ],
   "exclude": ["node_modules"]
 }

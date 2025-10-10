@@ -1,25 +1,9 @@
 "use client";
-
 import Link from "next/link";
-import {
-  BarChart3,
-  FileCheck2,
-  Scale,
-  ShieldCheck,
-  Building2,
-  CreditCard,
-  Gavel,
-  Info,
-} from "lucide-react";
+import { BarChart3, Lock, ShieldCheck, Cookie, Globe2, Gavel } from "lucide-react";
 
-export default function TermsPage() {
+export default function Page() {
   const year = new Date().getFullYear();
-  const lastUpdated = new Date().toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-
   return (
     <div className="min-h-screen bg-gray-950 text-gray-300">
       {/* Top Nav */}
@@ -32,10 +16,7 @@ export default function TermsPage() {
             <span className="text-xl font-semibold text-white">LeadSentra</span>
           </Link>
           <div className="flex items-center gap-6">
-            <Link
-              href="/privacy"
-              className="text-sm text-gray-300 hover:text-white"
-            >
+            <Link href="/privacy" className="text-sm text-gray-300 hover:text-white">
               Privacy
             </Link>
             <Link
@@ -52,66 +33,25 @@ export default function TermsPage() {
       <header className="border-b border-gray-800 bg-gradient-to-b from-gray-950 via-gray-950 to-gray-900">
         <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-900/20 px-3 py-1">
-            <FileCheck2 className="h-4 w-4 text-emerald-400" />
-            <span className="text-xs font-medium text-emerald-300">Legal</span>
+            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            <span className="text-xs font-medium text-emerald-300">Legal (India)</span>
           </div>
-          <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-end">
-            <div>
-              <h1 className="text-4xl font-bold tracking-tight text-white md:text-5xl">
-                Terms of Service
-              </h1>
-              {/* <p className="mt-3 max-w-2xl text-gray-400">
-                These Terms govern your access to and use of LeadSentra’s platform, APIs, and related services.
-              </p> */}
-            </div>
-            {/*<div className="rounded-xl border border-gray-800 bg-gray-900 px-4 py-3 text-sm text-gray-400">
-              <span className="mr-2 inline-flex items-center gap-2">
-                <Info className="h-4 w-4 text-emerald-400" />
-                Last updated:
-              </span>
-              <span className="font-medium text-gray-300">{lastUpdated}</span>
-            </div> */}
-          </div>
+          <h1 className="text-4xl font-bold tracking-tight text-white md:text-5xl">Terms of Service</h1>
 
           {/* At-a-glance */}
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
-              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-200">
-                <Scale className="h-4 w-4 text-emerald-400" /> Agreement
-              </div>
-              <p className="text-sm text-gray-400">
-                By using LeadSentra, you accept these Terms and our Privacy
-                Policy.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
-              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-200">
-                <CreditCard className="h-4 w-4 text-emerald-400" /> Credits &
-                Billing
-              </div>
-              <p className="text-sm text-gray-400">
-                Credit-based usage with tiered plans. Non-refundable unless
-                required by law.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
-              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-200">
-                <ShieldCheck className="h-4 w-4 text-emerald-400" /> Acceptable
-                Use
-              </div>
-              <p className="text-sm text-gray-400">
-                No spam, scraping abuse, or unlawful activity. Respect rate
-                limits.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
-              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-200">
-                <Gavel className="h-4 w-4 text-emerald-400" /> Law & Venue
-              </div>
-              <p className="text-sm text-gray-400">
-                Governed by your specified jurisdiction.
-              </p>
-            </div>
+            <StatCard icon={<Lock className="h-4 w-4 text-emerald-400" />} title="Agreement">
+              By using LeadSentra you accept these Terms and our Privacy Policy.
+            </StatCard>
+            <StatCard icon={<Gavel className="h-4 w-4 text-emerald-400" />} title="India‑specific">
+              Complies with DPDP Act, IT/SPDI Rules, TRAI UCC norms.
+            </StatCard>
+            <StatCard icon={<Globe2 className="h-4 w-4 text-emerald-400" />} title="Acceptable Use">
+              No unlawful scraping, spam, or abuse; honour DND/consent.
+            </StatCard>
+            <StatCard icon={<Cookie className="h-4 w-4 text-emerald-400" />} title="Billing">
+              Credit‑based plans; taxes as applicable in India.
+            </StatCard>
           </div>
         </div>
       </header>
@@ -120,265 +60,105 @@ export default function TermsPage() {
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid gap-10 lg:grid-cols-12">
           {/* Main */}
-          <section className="lg:col-span-8 space-y-10">
-            <Section id="agreement" title="1. Agreement & Acceptance">
-              <p>
-                These Terms of Service (“Terms”) are a binding agreement between
-                you and LeadSentra (“we”, “us”). By accessing or using our
-                websites, applications, or services (collectively, the
-                “Services”), you agree to these Terms and our{" "}
-                <Link
-                  href="/privacy"
-                  className="text-emerald-400 hover:underline"
-                >
-                  Privacy Policy
-                </Link>
-                . If you use the Services on behalf of an entity, you represent
-                that you are authorized to bind that entity.
-              </p>
+          <section className="space-y-8 lg:col-span-8">
+            <Section id="accept" title="1) Acceptance & Scope">
+              <p>These Terms are a binding agreement between you and LeadSentra. If you use the Services on behalf of a company, you represent you are authorised to bind it.</p>
             </Section>
 
-            <Section id="accounts" title="2. Accounts & Eligibility">
+            <Section id="account" title="2) Eligibility & Accounts">
               <ul className="list-disc space-y-2 pl-6">
-                <li>
-                  You must be at least 18 years old and able to form a contract.
-                </li>
-                <li>
-                  You are responsible for safeguarding your credentials and all
-                  activity under your account.
-                </li>
-                <li>
-                  Provide accurate registration information and promptly update
-                  it when it changes.
-                </li>
+                <li>You must be 18+ and capable of entering into a contract.</li>
+                <li>Keep credentials confidential; you are responsible for activity on your account.</li>
+                <li>Provide accurate registration and billing information.</li>
               </ul>
             </Section>
 
-            <Section id="credits" title="3. Subscription, Credits & Billing">
+            <Section id="billing" title="3) Plans, Credits & Billing">
               <ul className="list-disc space-y-2 pl-6">
-                <li>
-                  The Services operate on a credit-based model. Features consume
-                  credits as shown in the product UI.
-                </li>
-                <li>
-                  Plan tiers (e.g., Pro, Premium) and pricing are presented at
-                  checkout; taxes may apply.
-                </li>
-                <li>
-                  Unless otherwise specified, credits are granted upfront and
-                  may not expire; promotional credits may have limits.
-                </li>
-                <li>
-                  Payments are processed by our third-party provider. By
-                  purchasing, you authorize recurring or one-time charges as
-                  selected.
-                </li>
-                <li>
-                  Except where required by law or stated otherwise, purchases
-                  are non-refundable.
-                </li>
+                <li>Usage is credit‑based as shown in product. Plan prices/taxes are displayed at checkout.</li>
+                <li>Payments are processed by our provider; we do not store card numbers.</li>
+                <li>Except where required by Indian law or stated otherwise, purchases are non‑refundable.</li>
               </ul>
             </Section>
 
-            <Section id="use" title="4. Acceptable Use">
+            <Section id="use" title="4) Acceptable Use (incl. marketing)">
               <ul className="list-disc space-y-2 pl-6">
-                <li>
-                  No unlawful, infringing, deceptive, harassing, or harmful
-                  activity.
-                </li>
-                <li>
-                  No spam or unsolicited outreach; comply with applicable
-                  marketing and anti-spam laws.
-                </li>
-                <li>
-                  Do not bypass security, probe the system, or exceed documented
-                  rate limits.
-                </li>
-                <li>
-                  Do not resell or bulk export data where prohibited by your
-                  plan or by law.
-                </li>
+                <li>No illegal, infringing, deceptive, or harmful activity; no security probing or bypassing limits.</li>
+                <li>No unsolicited communications in violation of TRAI UCC/DND rules; honour opt‑outs.</li>
+                <li>Only upload/share data you have rights to and required notices/consents for (incl. personal data under DPDP Act).</li>
               </ul>
             </Section>
 
-            <Section id="privacy" title="5. Data, Privacy & Security">
-              <p>
-                We process account, usage, and business contact data as
-                described in our{" "}
-                <Link
-                  href="/privacy"
-                  className="text-emerald-400 hover:underline"
-                >
-                  Privacy Policy
-                </Link>
-                . You are responsible for providing required notices and
-                obtaining any necessary consents regarding data you submit to
-                the Services. We implement administrative and technical
-                safeguards appropriate to the risk.
-              </p>
+            <Section id="privacy" title="5) Data & Privacy">
+              <p>We process account, usage, and B2B data as described in our <Link href="/privacy" className="text-emerald-400 hover:underline">Privacy Policy</Link>. You are responsible for your lawful basis when syncing contacts or triggering outreach via integrations.</p>
             </Section>
 
-            <Section id="integrations" title="6. Third-Party Integrations">
-              <p>
-                Optional integrations (e.g., CRM, email) are provided by third
-                parties and subject to their terms and privacy policies. We are
-                not responsible for third-party services.
-              </p>
+            <Section id="third" title="6) Integrations & Third‑Party Services">
+              <p>Optional integrations (e.g., CRM, email) are provided by third parties and subject to their terms; we are not responsible for third‑party services.</p>
             </Section>
 
-            <Section id="ip" title="7. Intellectual Property">
-              <p>
-                We (and our licensors) retain all rights to the Services,
-                including software, designs, and content, excluding your data.
-                Subject to these Terms, we grant you a limited, non-exclusive,
-                non-transferable, revocable license to use the Services.
-              </p>
+            <Section id="ip" title="7) Intellectual Property">
+              <p>We (and our licensors) retain all rights to the Services. Subject to these Terms, we grant a limited, non‑transferable, revocable licence to use the Services.</p>
             </Section>
 
-            <Section id="confidentiality" title="8. Confidentiality">
-              <p>
-                “Confidential Information” means non-public information
-                disclosed by a party that is marked or should reasonably be
-                understood as confidential. The receiving party will use the
-                same degree of care it uses to protect its own confidential
-                information (and at least reasonable care) and will not disclose
-                it except as permitted here.
-              </p>
+            <Section id="conf" title="8) Confidentiality">
+              <p>Non‑public information disclosed by either party must be protected with at least reasonable care and used only as permitted.</p>
             </Section>
 
-            <Section id="warranties" title="9. Warranties & Disclaimers">
-              <p>
-                The Services are provided “as is” and “as available.” To the
-                fullest extent allowed by law, we disclaim all warranties,
-                express or implied, including merchantability, fitness for a
-                particular purpose, and non-infringement.
-              </p>
+            <Section id="warranty" title="9) Warranties & Disclaimers">
+              <p>The Services are provided "as is" and "as available" to the fullest extent permitted by law.</p>
             </Section>
 
-            <Section id="liability" title="10. Limitation of Liability">
-              <p>
-                To the maximum extent permitted by law, we will not be liable
-                for indirect, incidental, special, consequential, exemplary, or
-                punitive damages, or lost profits or revenues. Our aggregate
-                liability arising from or relating to the Services will not
-                exceed the amounts you paid in the twelve (12) months preceding
-                the event giving rise to liability.
-              </p>
+            <Section id="liability" title="10) Limitation of Liability">
+              <p>To the maximum extent permitted, we are not liable for indirect or consequential damages. Our aggregate liability is capped at fees paid in the preceding 12 months.</p>
             </Section>
 
-            <Section id="indemnity" title="11. Indemnification">
-              <p>
-                You agree to defend, indemnify, and hold harmless LeadSentra and
-                its affiliates from any claims, damages, losses, liabilities,
-                costs, and expenses (including reasonable attorneys’ fees)
-                arising from your use of the Services or violation of these
-                Terms.
-              </p>
+            <Section id="suspension" title="11) Suspension & Termination">
+              <p>We may suspend or terminate for violations, security risk, non‑payment, or legal requirement. Certain clauses survive termination (IP, confidentiality, liability limits).</p>
             </Section>
 
-            <Section id="termination" title="12. Suspension & Termination">
-              <p>
-                We may suspend or terminate access for actual or suspected
-                violations of these Terms, for security risks, or where required
-                by law. You may stop using the Services at any time; certain
-                provisions survive termination (e.g., IP, confidentiality,
-                liability limits).
-              </p>
+
+            <Section id="notices" title="13) Notices & Grievances">
+              <p>Legal notices and grievances: <a href="mailto:enquiry@raceinnovations.in" className="text-emerald-400 hover:underline">enquiry@raceinnovations.in</a>. For privacy complaints, contact our Grievance Officer listed in the Privacy Policy first.</p>
+              <p className="mt-4 rounded-lg border border-amber-700/40 bg-amber-900/10 p-4 text-amber-200 text-sm">This page is general information and not legal advice. Please consult your counsel.</p>
             </Section>
 
-            <Section id="changes" title="13. Changes to Service or Terms">
-              <p>
-                We may update the Services and these Terms from time to time. If
-                changes are material, we will provide reasonable notice via the
-                Service or email. Your continued use after the effective date
-                constitutes acceptance.
-              </p>
-            </Section>
-
-            <Section id="law" title="14. Governing Law & Dispute Resolution">
-              <p>
-                These Terms are governed by the laws of{" "}
-                <span className="font-medium">[your jurisdiction]</span>,
-                excluding conflict-of-laws principles. The courts located in{" "}
-                <span className="font-medium">[your venue]</span> have exclusive
-                jurisdiction. You and LeadSentra waive any right to a jury trial
-                where permitted by law.
-              </p>
-            </Section>
-
-            <Section id="contact" title="15. Contact">
-              <p>
-                Questions about these Terms? Email{" "}
-                <a
-                  href="mailto:support@LeadSentra.app"
-                  className="text-emerald-400 hover:underline"
-                >
-                  support@LeadSentra.app
-                </a>
-                .
-              </p>
-              <p className="mt-6 rounded-lg border border-amber-700/40 bg-amber-900/10 p-4 text-amber-200">
-                This page provides general information and does not constitute
-                legal advice. Please consult your counsel.
-              </p>
+            <Section id="changes" title="14) Changes">
+              <p>We may update these Terms; material changes will be notified in product or by email. Continued use means acceptance.</p>
             </Section>
           </section>
 
           {/* Right rail */}
           <aside className="lg:col-span-4">
             <div className="sticky top-24 space-y-6">
-              {/* TOC */}
               <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6">
-                <h3 className="mb-3 text-sm font-semibold text-white">
-                  Table of contents
-                </h3>
+                <h3 className="mb-3 text-sm font-semibold text-white">Table of contents</h3>
                 <nav className="text-sm">
                   <ul className="space-y-2">
                     {[
-                      ["agreement", "Agreement & Acceptance"],
-                      ["accounts", "Accounts & Eligibility"],
-                      ["credits", "Subscription, Credits & Billing"],
+                      ["accept", "Acceptance & Scope"],
+                      ["account", "Eligibility & Accounts"],
+                      ["billing", "Plans & Billing"],
                       ["use", "Acceptable Use"],
-                      ["privacy", "Data, Privacy & Security"],
-                      ["integrations", "Third-Party Integrations"],
+                      ["privacy", "Data & Privacy"],
+                      ["third", "Integrations"],
                       ["ip", "Intellectual Property"],
-                      ["confidentiality", "Confidentiality"],
-                      ["warranties", "Warranties & Disclaimers"],
-                      ["liability", "Limitation of Liability"],
-                      ["indemnity", "Indemnification"],
-                      ["termination", "Suspension & Termination"],
-                      ["changes", "Changes to Service or Terms"],
-                      ["law", "Governing Law & Dispute Resolution"],
-                      ["contact", "Contact"],
+                      ["conf", "Confidentiality"],
+                      ["warranty", "Warranties"],
+                      ["liability", "Liability"],
+                      ["suspension", "Suspension & Termination"],
+                     
+                      ["notices", "Notices & Grievances"],
+                      ["changes", "Changes"],
                     ].map(([id, label]) => (
-                      <li key={id}>
-                        <a
-                          href={`#${id}`}
-                          className="inline-block rounded-md px-2 py-1 text-gray-300 hover:bg-gray-800 hover:text-white"
-                        >
+                      <li key={id as string}>
+                        <a href={`#${id}`} className="inline-block rounded-md px-2 py-1 text-gray-300 hover:bg-gray-800 hover:text-white">
                           {label}
                         </a>
                       </li>
                     ))}
                   </ul>
                 </nav>
-              </div>
-
-              {/* Help card */}
-              <div className="rounded-2xl border border-gray-800 bg-gray-900 p-6">
-                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
-                  <Building2 className="h-4 w-4 text-emerald-400" /> Need a DPA?
-                </div>
-                <p className="mb-4 text-sm text-gray-400">
-                  If your organization requires a Data Processing Addendum (DPA)
-                  or vendor security review, reach out and our team will help.
-                </p>
-                <a
-                  href="mailto:legal@LeadSentra.app"
-                  className="inline-flex items-center justify-center rounded-lg border border-emerald-700/40 bg-emerald-900/20 px-4 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-900/30"
-                >
-                  Contact Legal
-                </a>
               </div>
             </div>
           </aside>
@@ -394,24 +174,31 @@ export default function TermsPage() {
             </div>
             <span className="text-xl font-semibold text-white">LeadSentra</span>
           </div>
-          <div className="text-sm text-gray-400">
-            © {year} LeadSentra. All rights reserved.
-          </div>
+          <div className="text-sm text-gray-400">© {year} LeadSentra. All rights reserved.</div>
         </div>
       </footer>
     </div>
   );
 }
 
-/* ---------- tiny section component for consistent card styling ---------- */
-function Section({ id, title, children }) {
+/* ---------- helpers ---------- */
+function StatCard({ icon, title, children }: any) {
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-200">
+        {icon} {title}
+      </div>
+      <p className="text-sm text-gray-400">{children}</p>
+    </div>
+  );
+}
+
+function Section({ id, title, children }: any) {
   return (
     <section id={id} className="scroll-mt-24">
       <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-6">
         <h2 className="mb-3 text-2xl font-semibold text-white">{title}</h2>
-        <div className="space-y-3 leading-relaxed text-gray-300">
-          {children}
-        </div>
+        <div className="space-y-3 leading-relaxed text-gray-300">{children}</div>
       </div>
     </section>
   );

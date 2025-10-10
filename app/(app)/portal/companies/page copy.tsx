@@ -19,11 +19,11 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 type Row = {
   company_id: string;
-  name: string;         // trading_name || legal_name
-  companyType: string;  // replaces "industry"
+  name: string; // trading_name || legal_name
+  companyType: string; // replaces "industry"
   size: string;
-  location: string;     // City, Country
-  contacts: number;     // display count
+  location: string; // City, Country
+  contacts: number; // display count
 };
 
 type CompanyFull = {
@@ -60,9 +60,15 @@ type ContactMini = {
 export default function CompaniesPage() {
   const supabase = createClientComponentClient();
 
-  const headers = ["Company Name", "Company Type", "Size", "Location", "Contacts"];
+  const headers = [
+    "Company Name",
+    "Company Type",
+    "Size",
+    "Location",
+    "Contacts",
+  ];
 
-  // auth/admin
+  // auth/portal
   const [isAdmin, setIsAdmin] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -74,12 +80,18 @@ export default function CompaniesPage() {
   // search / filters / sort / pagination
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [filters, setFilters] = useState<{ companyType: string; size: string; location: string }>({
+  const [filters, setFilters] = useState<{
+    companyType: string;
+    size: string;
+    location: string;
+  }>({
     companyType: "",
     size: "",
     location: "",
   });
-  const [sortKey, setSortKey] = useState<"name" | "companyType" | "size" | "location">("name");
+  const [sortKey, setSortKey] = useState<
+    "name" | "companyType" | "size" | "location"
+  >("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<15 | 30 | 50>(15);
@@ -105,7 +117,9 @@ export default function CompaniesPage() {
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsError, setContactsError] = useState<string | null>(null);
   const [companyContacts, setCompanyContacts] = useState<ContactMini[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(
+    null
+  );
   const [selectedCompanyName, setSelectedCompanyName] = useState<string>("");
   const [unlockedCount, setUnlockedCount] = useState<number>(0);
 
@@ -132,11 +146,14 @@ export default function CompaniesPage() {
 
   // helpers
   const norm = (v?: string | null) => (v ?? "").toString().trim();
-  const includesI = (hay: string, needle: string) => hay.toLowerCase().includes(needle.toLowerCase());
+  const includesI = (hay: string, needle: string) =>
+    hay.toLowerCase().includes(needle.toLowerCase());
 
   // detect admin via app_metadata.roles OR profiles.role = 'admin'
   async function detectAdmin() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     setUserId(user?.id ?? null);
 
     let viaAppMeta = false;
@@ -147,7 +164,11 @@ export default function CompaniesPage() {
 
     let viaProfiles = false;
     if (user?.id) {
-      const { data: prof } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
       viaProfiles = prof?.role === "admin";
     }
 
@@ -185,7 +206,10 @@ export default function CompaniesPage() {
   }
 
   // effects
-  useEffect(() => { detectAdmin(); load(); }, []);
+  useEffect(() => {
+    detectAdmin();
+    load();
+  }, []);
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 250);
     return () => clearTimeout(t);
@@ -194,13 +218,20 @@ export default function CompaniesPage() {
   // filter + search + sort
   useEffect(() => {
     let filtered = allRows.filter((r) => {
-      if (filters.companyType && norm(r.companyType) !== norm(filters.companyType)) return false;
+      if (
+        filters.companyType &&
+        norm(r.companyType) !== norm(filters.companyType)
+      )
+        return false;
       if (filters.size && norm(r.size) !== norm(filters.size)) return false;
-      if (filters.location && norm(r.location) !== norm(filters.location)) return false;
+      if (filters.location && norm(r.location) !== norm(filters.location))
+        return false;
 
       const s = norm(debouncedSearch);
       if (!s) return true;
-      const hay = [r.name, r.companyType, r.size, r.location].map(norm).join("|");
+      const hay = [r.name, r.companyType, r.size, r.location]
+        .map(norm)
+        .join("|");
       return includesI(hay, s);
     });
 
@@ -216,14 +247,23 @@ export default function CompaniesPage() {
 
   // options for select boxes (respect other filters/search)
   const uniqueSorted = (arr: string[]) =>
-    Array.from(new Set(arr.filter(Boolean).map(norm))).sort((a, b) => a.localeCompare(b));
+    Array.from(new Set(arr.filter(Boolean).map(norm))).sort((a, b) =>
+      a.localeCompare(b)
+    );
 
   const companyTypeOptions = useMemo(() => {
     const base = allRows.filter(
       (r) =>
         (filters.size ? norm(r.size) === norm(filters.size) : true) &&
-        (filters.location ? norm(r.location) === norm(filters.location) : true) &&
-        (debouncedSearch ? includesI([r.name, r.companyType, r.size, r.location].map(norm).join("|"), debouncedSearch) : true)
+        (filters.location
+          ? norm(r.location) === norm(filters.location)
+          : true) &&
+        (debouncedSearch
+          ? includesI(
+              [r.name, r.companyType, r.size, r.location].map(norm).join("|"),
+              debouncedSearch
+            )
+          : true)
     );
     return uniqueSorted(base.map((r) => r.companyType));
   }, [allRows, filters.size, filters.location, debouncedSearch]);
@@ -231,9 +271,18 @@ export default function CompaniesPage() {
   const sizeOptions = useMemo(() => {
     const base = allRows.filter(
       (r) =>
-        (filters.companyType ? norm(r.companyType) === norm(filters.companyType) : true) &&
-        (filters.location ? norm(r.location) === norm(filters.location) : true) &&
-        (debouncedSearch ? includesI([r.name, r.companyType, r.size, r.location].map(norm).join("|"), debouncedSearch) : true)
+        (filters.companyType
+          ? norm(r.companyType) === norm(filters.companyType)
+          : true) &&
+        (filters.location
+          ? norm(r.location) === norm(filters.location)
+          : true) &&
+        (debouncedSearch
+          ? includesI(
+              [r.name, r.companyType, r.size, r.location].map(norm).join("|"),
+              debouncedSearch
+            )
+          : true)
     );
     return uniqueSorted(base.map((r) => r.size));
   }, [allRows, filters.companyType, filters.location, debouncedSearch]);
@@ -241,9 +290,16 @@ export default function CompaniesPage() {
   const locationOptions = useMemo(() => {
     const base = allRows.filter(
       (r) =>
-        (filters.companyType ? norm(r.companyType) === norm(filters.companyType) : true) &&
+        (filters.companyType
+          ? norm(r.companyType) === norm(filters.companyType)
+          : true) &&
         (filters.size ? norm(r.size) === norm(filters.size) : true) &&
-        (debouncedSearch ? includesI([r.name, r.companyType, r.size, r.location].map(norm).join("|"), debouncedSearch) : true)
+        (debouncedSearch
+          ? includesI(
+              [r.name, r.companyType, r.size, r.location].map(norm).join("|"),
+              debouncedSearch
+            )
+          : true)
     );
     return uniqueSorted(base.map((r) => r.location));
   }, [allRows, filters.companyType, filters.size, debouncedSearch]);
@@ -260,7 +316,10 @@ export default function CompaniesPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const startIdx = (page - 1) * pageSize;
   const endIdx = Math.min(startIdx + pageSize, total);
-  const currentRows = useMemo(() => rows.slice(startIdx, endIdx), [rows, startIdx, endIdx]);
+  const currentRows = useMemo(
+    () => rows.slice(startIdx, endIdx),
+    [rows, startIdx, endIdx]
+  );
 
   // upload
   const onUploadClick = () => fileRef.current?.click();
@@ -274,13 +333,19 @@ export default function CompaniesPage() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch("/api/upload/companies", { method: "POST", body: fd });
+      const res = await fetch("/api/upload/companies", {
+        method: "POST",
+        body: fd,
+      });
       const json = await res.json();
       setUploadResult(json);
       if (!json?.dryRun) await load();
     } catch (err) {
       console.error(err);
-      setUploadResult({ inserted: 0, errors: [{ row: -1, error: "Upload failed" }] });
+      setUploadResult({
+        inserted: 0,
+        errors: [{ row: -1, error: "Upload failed" }],
+      });
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -296,13 +361,17 @@ export default function CompaniesPage() {
     setCompanyFull(null);
 
     try {
-      const res = await fetch(`/api/companies/${encodeURIComponent(company_id)}/full`, { cache: "no-store" });
+      const res = await fetch(
+        `/api/companies/${encodeURIComponent(company_id)}/full`,
+        { cache: "no-store" }
+      );
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to fetch company");
 
       const c = json.company as CompanyFull;
       setCompanyFull(c);
-      const display = c.trading_name || c.legal_name || c.company_name || c.company_id;
+      const display =
+        c.trading_name || c.legal_name || c.company_name || c.company_id;
       setSelectedCompanyName(display ?? company_id);
     } catch (e: any) {
       console.error(e);
@@ -322,14 +391,21 @@ export default function CompaniesPage() {
     setSelectedCompanyName("");
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error("Not signed in");
 
-      const res = await fetch(`/api/companies/${encodeURIComponent(company_id)}/full`, { cache: "no-store" });
+      const res = await fetch(
+        `/api/companies/${encodeURIComponent(company_id)}/full`,
+        { cache: "no-store" }
+      );
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to fetch contacts");
 
-      const list: ContactMini[] = Array.isArray(json.contacts) ? json.contacts : [];
+      const list: ContactMini[] = Array.isArray(json.contacts)
+        ? json.contacts
+        : [];
       const ids = list.map((c) => c.id).filter(Boolean);
 
       let unlockedSet = new Set<string>();
@@ -341,7 +417,9 @@ export default function CompaniesPage() {
           .in("contact_id", ids);
 
         if (error) throw error;
-        unlockedSet = new Set((unlockedRows ?? []).map((r: any) => r.contact_id as string));
+        unlockedSet = new Set(
+          (unlockedRows ?? []).map((r: any) => r.contact_id as string)
+        );
       }
 
       const unlocked = list.filter((c) => unlockedSet.has(c.id));
@@ -349,7 +427,12 @@ export default function CompaniesPage() {
       setUnlockedCount(unlocked.length);
 
       const c = json.company as CompanyFull;
-      const display = c?.trading_name || c?.legal_name || c?.company_name || c?.company_id || "";
+      const display =
+        c?.trading_name ||
+        c?.legal_name ||
+        c?.company_name ||
+        c?.company_id ||
+        "";
       setSelectedCompanyName(display);
     } catch (e: any) {
       console.error(e);
@@ -415,7 +498,14 @@ export default function CompaniesPage() {
 
   // admin: export current view to CSV
   function exportCurrentViewCsv() {
-    const cols = ["company_id", "name", "companyType", "size", "location", "contacts"];
+    const cols = [
+      "company_id",
+      "name",
+      "companyType",
+      "size",
+      "location",
+      "contacts",
+    ];
     const lines = [cols.join(",")].concat(
       rows.map((r) =>
         [
@@ -428,7 +518,9 @@ export default function CompaniesPage() {
         ].join(",")
       )
     );
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -439,12 +531,21 @@ export default function CompaniesPage() {
 
   // quick stats
   const statCompanies = allRows.length;
-  const statTypes = useMemo(() => new Set(allRows.map((r) => norm(r.companyType))).size, [allRows]);
-  const statLocations = useMemo(() => new Set(allRows.map((r) => norm(r.location))).size, [allRows]);
+  const statTypes = useMemo(
+    () => new Set(allRows.map((r) => norm(r.companyType))).size,
+    [allRows]
+  );
+  const statLocations = useMemo(
+    () => new Set(allRows.map((r) => norm(r.location))).size,
+    [allRows]
+  );
 
   return (
     <div className="space-y-6">
-      <SectionHeader title="Companies" description="Manage your company database and discover new prospects">
+      <SectionHeader
+        title="Companies"
+        description="Manage your company database and discover new prospects"
+      >
         {/* Admin badge */}
         {isAdmin && (
           <span className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs bg-emerald-900/40 text-emerald-200 border border-emerald-700">
@@ -470,10 +571,19 @@ export default function CompaniesPage() {
               <Upload className="w-4 h-4" />
               {uploading ? "Uploading…" : "Upload"}
             </button>
-            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={onFileChange} />
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              className="hidden"
+              onChange={onFileChange}
+            />
 
             <button
-              onClick={() => { setAddModalOpen(true); setSaveErr(null); }}
+              onClick={() => {
+                setAddModalOpen(true);
+                setSaveErr(null);
+              }}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -526,15 +636,21 @@ export default function CompaniesPage() {
 
           {/* type */}
           <div className="md:col-span-2">
-            <label className="text-xs text-gray-400 block mb-1">Company Type</label>
+            <label className="text-xs text-gray-400 block mb-1">
+              Company Type
+            </label>
             <select
               value={filters.companyType}
-              onChange={(e) => setFilters((f) => ({ ...f, companyType: e.target.value }))}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, companyType: e.target.value }))
+              }
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 hover:border-gray-600 transition-colors"
             >
               <option value="">All</option>
               {companyTypeOptions.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
               ))}
             </select>
           </div>
@@ -544,12 +660,16 @@ export default function CompaniesPage() {
             <label className="text-xs text-gray-400 block mb-1">Size</label>
             <select
               value={filters.size}
-              onChange={(e) => setFilters((f) => ({ ...f, size: e.target.value }))}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, size: e.target.value }))
+              }
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 hover:border-gray-600 transition-colors"
             >
               <option value="">All</option>
               {sizeOptions.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
               ))}
             </select>
           </div>
@@ -559,12 +679,16 @@ export default function CompaniesPage() {
             <label className="text-xs text-gray-400 block mb-1">Location</label>
             <select
               value={filters.location}
-              onChange={(e) => setFilters((f) => ({ ...f, location: e.target.value }))}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, location: e.target.value }))
+              }
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 hover:border-gray-600 transition-colors"
             >
               <option value="">All</option>
               {locationOptions.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
               ))}
             </select>
           </div>
@@ -589,14 +713,21 @@ export default function CompaniesPage() {
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-200 hover:border-gray-600 flex items-center justify-center gap-2"
               title={sortDir === "asc" ? "Ascending (A→Z)" : "Descending (Z→A)"}
             >
-              {sortDir === "asc" ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />}
+              {sortDir === "asc" ? (
+                <SortAsc className="w-4 h-4" />
+              ) : (
+                <SortDesc className="w-4 h-4" />
+              )}
               {sortDir === "asc" ? "A→Z" : "Z→A"}
             </button>
           </div>
 
           {/* clear & count */}
           <div className="md:col-span-12 flex items-center justify-between">
-            <button onClick={clearFilters} className="px-3 py-2 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg text-sm">
+            <button
+              onClick={clearFilters}
+              className="px-3 py-2 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg text-sm"
+            >
               Clear
             </button>
             <div className="text-xs text-gray-400">
@@ -611,26 +742,40 @@ export default function CompaniesPage() {
         <div className="rounded-lg border border-gray-700 bg-gray-800 p-4 text-sm">
           <div className="font-medium">Upload summary</div>
           <div className="mt-1">
-            Parsed: <b>{uploadResult.parsed ?? 0}</b> • Valid: <b>{uploadResult.valid ?? 0}</b> • Inserted/updated:{" "}
+            Parsed: <b>{uploadResult.parsed ?? 0}</b> • Valid:{" "}
+            <b>{uploadResult.valid ?? 0}</b> • Inserted/updated:{" "}
             <b>{uploadResult.inserted ?? 0}</b>
-            {uploadResult.dryRun ? <span className="ml-2 italic text-gray-400">(dry run)</span> : null}
+            {uploadResult.dryRun ? (
+              <span className="ml-2 italic text-gray-400">(dry run)</span>
+            ) : null}
           </div>
-          {Array.isArray(uploadResult.errors) && uploadResult.errors.length > 0 && (
-            <details className="mt-2">
-              <summary className="cursor-pointer">Errors ({uploadResult.errors.length})</summary>
-              <ul className="list-disc pl-5 mt-2">
-                {uploadResult.errors.map((e, i) => <li key={i}>Row {e.row}: {e.error}</li>)}
-              </ul>
-            </details>
-          )}
+          {Array.isArray(uploadResult.errors) &&
+            uploadResult.errors.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer">
+                  Errors ({uploadResult.errors.length})
+                </summary>
+                <ul className="list-disc pl-5 mt-2">
+                  {uploadResult.errors.map((e, i) => (
+                    <li key={i}>
+                      Row {e.row}: {e.error}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
         </div>
       )}
 
       {/* Table */}
       {loading ? (
-        <div className="rounded-lg border border-gray-800 bg-gray-900 p-6 text-sm text-gray-400">Loading…</div>
+        <div className="rounded-lg border border-gray-800 bg-gray-900 p-6 text-sm text-gray-400">
+          Loading…
+        </div>
       ) : rows.length === 0 ? (
-        <div className="rounded-lg border border-gray-800 bg-gray-900 p-10 text-center text-gray-300">No companies found.</div>
+        <div className="rounded-lg border border-gray-800 bg-gray-900 p-10 text-center text-gray-300">
+          No companies found.
+        </div>
       ) : (
         <>
           <Table headers={headers} data={tableData} />
@@ -638,7 +783,8 @@ export default function CompaniesPage() {
           {/* Pagination */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 py-4">
             <div className="text-sm text-gray-400">
-              Showing <b>{total === 0 ? 0 : startIdx + 1}</b>–<b>{endIdx}</b> of <b>{total}</b>
+              Showing <b>{total === 0 ? 0 : startIdx + 1}</b>–<b>{endIdx}</b> of{" "}
+              <b>{total}</b>
             </div>
             <div className="flex items-center gap-3">
               <label className="text-sm text-gray-300">
@@ -646,7 +792,9 @@ export default function CompaniesPage() {
                 <select
                   className="ml-2 bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-sm"
                   value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value) as 15 | 30 | 50)}
+                  onChange={(e) =>
+                    setPageSize(Number(e.target.value) as 15 | 30 | 50)
+                  }
                 >
                   <option value={15}>15</option>
                   <option value={30}>30</option>
@@ -654,8 +802,20 @@ export default function CompaniesPage() {
                 </select>
               </label>
               <div className="flex items-center gap-1">
-                <button onClick={() => setPage(1)} disabled={page === 1} className="px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-sm disabled:opacity-50">« First</button>
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-sm disabled:opacity-50">‹ Prev</button>
+                <button
+                  onClick={() => setPage(1)}
+                  disabled={page === 1}
+                  className="px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-sm disabled:opacity-50"
+                >
+                  « First
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-sm disabled:opacity-50"
+                >
+                  ‹ Prev
+                </button>
                 {Array.from({ length: Math.min(7, totalPages) }).map((_, i) => {
                   const n = i + Math.max(1, Math.min(page - 3, totalPages - 6));
                   return (
@@ -663,17 +823,33 @@ export default function CompaniesPage() {
                       key={n}
                       onClick={() => setPage(n)}
                       className={`px-2 py-1 rounded-md border text-sm ${
-                        n === page ? "bg-emerald-600 border-emerald-600 text-white" : "bg-gray-800 border-gray-700 text-gray-200 hover:bg-gray-700"
+                        n === page
+                          ? "bg-emerald-600 border-emerald-600 text-white"
+                          : "bg-gray-800 border-gray-700 text-gray-200 hover:bg-gray-700"
                       }`}
                     >
                       {n}
                     </button>
                   );
                 })}
-                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-sm disabled:opacity-50">Next ›</button>
-                <button onClick={() => setPage(totalPages)} disabled={page === totalPages} className="px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-sm disabled:opacity-50">Last »</button>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-sm disabled:opacity-50"
+                >
+                  Next ›
+                </button>
+                <button
+                  onClick={() => setPage(totalPages)}
+                  disabled={page === totalPages}
+                  className="px-2 py-1 rounded-md bg-gray-800 border border-gray-700 text-sm disabled:opacity-50"
+                >
+                  Last »
+                </button>
               </div>
-              <div className="text-sm text-gray-400">Page <b>{page}</b> of <b>{totalPages}</b></div>
+              <div className="text-sm text-gray-400">
+                Page <b>{page}</b> of <b>{totalPages}</b>
+              </div>
             </div>
           </div>
         </>
@@ -681,7 +857,10 @@ export default function CompaniesPage() {
 
       {/* Company Modal */}
       {companyModalOpen && (
-        <Modal onClose={() => setCompanyModalOpen(false)} title="Company Details">
+        <Modal
+          onClose={() => setCompanyModalOpen(false)}
+          title="Company Details"
+        >
           {companyLoading ? (
             <div className="text-sm text-gray-300">Loading…</div>
           ) : companyError ? (
@@ -691,7 +870,12 @@ export default function CompaniesPage() {
               <Info label="Company ID" value={companyFull.company_id} />
               <Info
                 label="Display Name"
-                value={companyFull.trading_name || companyFull.legal_name || companyFull.company_name || companyFull.company_id}
+                value={
+                  companyFull.trading_name ||
+                  companyFull.legal_name ||
+                  companyFull.company_name ||
+                  companyFull.company_id
+                }
               />
               <Info label="Company Type" value={companyFull.company_type} />
               <Info label="Size" value={companyFull.size} />
@@ -699,10 +883,17 @@ export default function CompaniesPage() {
                 label="Website"
                 value={
                   companyFull.website ? (
-                    <a className="text-emerald-400 hover:underline" href={companyFull.website} target="_blank" rel="noreferrer">
+                    <a
+                      className="text-emerald-400 hover:underline"
+                      href={companyFull.website}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       {companyFull.website}
                     </a>
-                  ) : ""
+                  ) : (
+                    ""
+                  )
                 }
               />
               <Info label="Email" value={companyFull.email_general} />
@@ -715,10 +906,17 @@ export default function CompaniesPage() {
                 label="LinkedIn"
                 value={
                   companyFull.linkedin ? (
-                    <a className="inline-flex items-center gap-1 text-emerald-400 hover:underline" href={companyFull.linkedin} target="_blank" rel="noreferrer">
+                    <a
+                      className="inline-flex items-center gap-1 text-emerald-400 hover:underline"
+                      href={companyFull.linkedin}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       <Linkedin className="w-4 h-4" />
                     </a>
-                  ) : ""
+                  ) : (
+                    ""
+                  )
                 }
               />
               <div className="md:col-span-2">
@@ -731,7 +929,12 @@ export default function CompaniesPage() {
 
       {/* Contacts Modal — only unlocked contacts are shown */}
       {contactsModalOpen && (
-        <Modal onClose={() => setContactsModalOpen(false)} title={`Contacts ${selectedCompanyName ? `— ${selectedCompanyName}` : ""}`}>
+        <Modal
+          onClose={() => setContactsModalOpen(false)}
+          title={`Contacts ${
+            selectedCompanyName ? `— ${selectedCompanyName}` : ""
+          }`}
+        >
           {contactsLoading ? (
             <div className="text-sm text-gray-300">Loading…</div>
           ) : contactsError ? (
@@ -739,10 +942,13 @@ export default function CompaniesPage() {
           ) : (
             <>
               <div className="text-xs text-gray-400 mb-2">
-                Showing <b>{unlockedCount}</b> unlocked contact{unlockedCount === 1 ? "" : "s"}.
+                Showing <b>{unlockedCount}</b> unlocked contact
+                {unlockedCount === 1 ? "" : "s"}.
               </div>
               {companyContacts.length === 0 ? (
-                <div className="text-sm text-gray-400">No unlocked contacts for this company yet.</div>
+                <div className="text-sm text-gray-400">
+                  No unlocked contacts for this company yet.
+                </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -762,17 +968,31 @@ export default function CompaniesPage() {
                           <td className="py-2 pr-4">{c.title || ""}</td>
                           <td className="py-2 pr-4">
                             {c.email ? (
-                              <a className="text-emerald-400 hover:underline" href={`mailto:${c.email}`}>
+                              <a
+                                className="text-emerald-400 hover:underline"
+                                href={`mailto:${c.email}`}
+                              >
                                 {c.email}
                               </a>
-                            ) : ""}
+                            ) : (
+                              ""
+                            )}
                           </td>
                           <td className="py-2 pr-4">{c.phone || ""}</td>
                           <td className="py-2 pr-4">
                             <div className="flex items-center gap-1">
-                              <SocialIcon url={c.linkedin_url} label="LinkedIn"><Linkedin className="w-4 h-4" /></SocialIcon>
-                              <SocialIcon url={c.facebook_url} label="Facebook"><Facebook className="w-4 h-4" /></SocialIcon>
-                              <SocialIcon url={c.instagram_url} label="Instagram"><Instagram className="w-4 h-4" /></SocialIcon>
+                              <SocialIcon url={c.linkedin_url} label="LinkedIn">
+                                <Linkedin className="w-4 h-4" />
+                              </SocialIcon>
+                              <SocialIcon url={c.facebook_url} label="Facebook">
+                                <Facebook className="w-4 h-4" />
+                              </SocialIcon>
+                              <SocialIcon
+                                url={c.instagram_url}
+                                label="Instagram"
+                              >
+                                <Instagram className="w-4 h-4" />
+                              </SocialIcon>
                             </div>
                           </td>
                         </tr>
@@ -795,7 +1015,9 @@ export default function CompaniesPage() {
             <Field label="Company ID *">
               <input
                 value={form.company_id}
-                onChange={(e) => setForm({ ...form, company_id: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, company_id: e.target.value })
+                }
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 hover:border-gray-600 transition-colors"
                 placeholder="ACME-001"
               />
@@ -803,56 +1025,137 @@ export default function CompaniesPage() {
             <Field label="Company Name *">
               <input
                 value={form.company_name}
-                onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, company_name: e.target.value })
+                }
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 hover:border-gray-600 transition-colors"
                 placeholder="Acme Inc."
               />
             </Field>
             <Field label="Legal Name">
-              <input value={form.legal_name} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" />
+              <input
+                value={form.legal_name}
+                onChange={(e) =>
+                  setForm({ ...form, legal_name: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+              />
             </Field>
             <Field label="Trading Name">
-              <input value={form.trading_name} onChange={(e) => setForm({ ...form, trading_name: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" />
+              <input
+                value={form.trading_name}
+                onChange={(e) =>
+                  setForm({ ...form, trading_name: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+              />
             </Field>
             <Field label="Company Type">
-              <input value={form.company_type} onChange={(e) => setForm({ ...form, company_type: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" placeholder="Private / Public / LLC…" />
+              <input
+                value={form.company_type}
+                onChange={(e) =>
+                  setForm({ ...form, company_type: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+                placeholder="Private / Public / LLC…"
+              />
             </Field>
             <Field label="Size">
-              <input value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" placeholder="1–10, 11–50, 51–200…" />
+              <input
+                value={form.size}
+                onChange={(e) => setForm({ ...form, size: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+                placeholder="1–10, 11–50, 51–200…"
+              />
             </Field>
             <Field label="Website">
-              <input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" placeholder="https://…" />
+              <input
+                value={form.website}
+                onChange={(e) => setForm({ ...form, website: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+                placeholder="https://…"
+              />
             </Field>
             <Field label="Head Office Address">
-              <input value={form.head_office_address} onChange={(e) => setForm({ ...form, head_office_address: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" />
+              <input
+                value={form.head_office_address}
+                onChange={(e) =>
+                  setForm({ ...form, head_office_address: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+              />
             </Field>
             <Field label="City/Regency">
-              <input value={form.city_regency} onChange={(e) => setForm({ ...form, city_regency: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" />
+              <input
+                value={form.city_regency}
+                onChange={(e) =>
+                  setForm({ ...form, city_regency: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+              />
             </Field>
             <Field label="Country">
-              <input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" />
+              <input
+                value={form.country}
+                onChange={(e) => setForm({ ...form, country: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+              />
             </Field>
             <Field label="Postal Code">
-              <input value={form.postal_code} onChange={(e) => setForm({ ...form, postal_code: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" />
+              <input
+                value={form.postal_code}
+                onChange={(e) =>
+                  setForm({ ...form, postal_code: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+              />
             </Field>
             <Field label="Main Phone">
-              <input value={form.phone_main} onChange={(e) => setForm({ ...form, phone_main: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" />
+              <input
+                value={form.phone_main}
+                onChange={(e) =>
+                  setForm({ ...form, phone_main: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+              />
             </Field>
             <Field label="General Email">
-              <input value={form.email_general} onChange={(e) => setForm({ ...form, email_general: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" placeholder="hello@company.com" />
+              <input
+                value={form.email_general}
+                onChange={(e) =>
+                  setForm({ ...form, email_general: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+                placeholder="hello@company.com"
+              />
             </Field>
             <Field label="LinkedIn">
-              <input value={form.linkedin} onChange={(e) => setForm({ ...form, linkedin: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" placeholder="https://linkedin.com/company/…" />
+              <input
+                value={form.linkedin}
+                onChange={(e) => setForm({ ...form, linkedin: e.target.value })}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+                placeholder="https://linkedin.com/company/…"
+              />
             </Field>
             <div className="md:col-span-2">
               <Field label="Notes">
-                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300" rows={3} />
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-300"
+                  rows={3}
+                />
               </Field>
             </div>
           </div>
 
           <div className="flex items-center justify-end gap-2">
-            <button onClick={() => setAddModalOpen(false)} className="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm hover:border-gray-600">Cancel</button>
+            <button
+              onClick={() => setAddModalOpen(false)}
+              className="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm hover:border-gray-600"
+            >
+              Cancel
+            </button>
             <button
               disabled={saveBusy}
               onClick={async () => {
@@ -869,12 +1172,25 @@ export default function CompaniesPage() {
                     body: JSON.stringify(payload),
                   });
                   const json = await res.json();
-                  if (!res.ok) throw new Error(json?.error || "Failed to create company");
+                  if (!res.ok)
+                    throw new Error(json?.error || "Failed to create company");
                   setAddModalOpen(false);
                   setForm({
-                    company_id: "", company_name: "", legal_name: "", trading_name: "", company_type: "",
-                    size: "", head_office_address: "", city_regency: "", country: "", postal_code: "",
-                    website: "", phone_main: "", email_general: "", linkedin: "", notes: "",
+                    company_id: "",
+                    company_name: "",
+                    legal_name: "",
+                    trading_name: "",
+                    company_type: "",
+                    size: "",
+                    head_office_address: "",
+                    city_regency: "",
+                    country: "",
+                    postal_code: "",
+                    website: "",
+                    phone_main: "",
+                    email_general: "",
+                    linkedin: "",
+                    notes: "",
                   });
                   await load();
                 } catch (e: any) {
@@ -896,16 +1212,28 @@ export default function CompaniesPage() {
 
 /* ------- Small UI helpers ------- */
 
-function Modal({ onClose, title, children }: { onClose: () => void; title: string; children: React.ReactNode }) {
+function Modal({
+  onClose,
+  title,
+  children,
+}: {
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="absolute inset-x-0 top-10 mx-auto w-[min(1000px,95%)] rounded-2xl bg-gray-900 border border-gray-700 shadow-xl">
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <h3 className="text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} className="text-gray-300 hover:text-white">✕</button>
+          <button onClick={onClose} className="text-gray-300 hover:text-white">
+            ✕
+          </button>
         </div>
-        <div className="p-4 space-y-6 max-h-[70vh] overflow-y-auto">{children}</div>
+        <div className="p-4 space-y-6 max-h-[70vh] overflow-y-auto">
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -916,24 +1244,50 @@ function Info({ label, value }: { label: string; value?: any }) {
   return (
     <div className="grid grid-cols-3 gap-2">
       <div className="text-gray-400">{label}</div>
-      <div className="col-span-2 text-gray-200 break-words">{v || <span className="text-gray-500">—</span>}</div>
+      <div className="col-span-2 text-gray-200 break-words">
+        {v || <span className="text-gray-500">—</span>}
+      </div>
     </div>
   );
 }
 
-function SocialIcon({ url, label, children }: { url?: string | null; label: string; children: React.ReactNode }) {
-  const cls = "inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-gray-700 transition-colors";
-  const disabled = "inline-flex items-center justify-center w-8 h-8 rounded-md opacity-40 cursor-not-allowed";
+function SocialIcon({
+  url,
+  label,
+  children,
+}: {
+  url?: string | null;
+  label: string;
+  children: React.ReactNode;
+}) {
+  const cls =
+    "inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-gray-700 transition-colors";
+  const disabled =
+    "inline-flex items-center justify-center w-8 h-8 rounded-md opacity-40 cursor-not-allowed";
   return url ? (
-    <a href={url} target="_blank" rel="noopener noreferrer" className={cls} title={`Open ${label}`}>
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cls}
+      title={`Open ${label}`}
+    >
       {children}
     </a>
   ) : (
-    <span className={disabled} title={`No ${label}`}>{children}</span>
+    <span className={disabled} title={`No ${label}`}>
+      {children}
+    </span>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <label className="block">
       <span className="text-xs text-gray-400 block mb-1">{label}</span>

@@ -128,7 +128,7 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // auth/admin
+  // auth/portal
   const [isAdmin, setIsAdmin] = useState(false);
 
   // wallet
@@ -1144,7 +1144,7 @@ export default function ContactsPage() {
                 <b>5</b> to unlock this contact.
                 <div className="flex items-center justify-end gap-2">
                   <a
-                    href="/pricing"
+                    href="/"
                     className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm"
                   >
                     Buy credits
@@ -1214,7 +1214,7 @@ export default function ContactsPage() {
             <div className="mt-4 flex items-center justify-end gap-2">
               {(wallet ?? 0) < bulkTotal && (
                 <a
-                  href="/pricing"
+                  href="/"
                   className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm"
                 >
                   Buy credits
