@@ -1144,7 +1144,7 @@ export default function ContactsPage() {
                 <b>5</b> to unlock this contact.
                 <div className="flex items-center justify-end gap-2">
                   <a
-                    href="/"
+                    href="/#pricing"
                     className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm"
                   >
                     Buy credits

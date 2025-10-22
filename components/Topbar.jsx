@@ -1,11 +1,12 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { User, LogOut, Wallet as WalletIcon, RefreshCcw } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useEffect, useState } from "react";
+import { User, LogOut, Wallet as WalletIcon, RefreshCcw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import Link from "next/link";
 
-const LOGIN_ROUTE = '/auth/signin'; // ← change if your login path is different
+const LOGIN_ROUTE = "/auth/signin"; // ← change if your login path is different
 
 export default function Topbar() {
   const router = useRouter();
@@ -13,7 +14,7 @@ export default function Topbar() {
 
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [loadingUser, setLoadingUser] = useState(true);
-  const [profile, setProfile] = useState({ id: '', name: '', email: '' });
+  const [profile, setProfile] = useState({ id: "", name: "", email: "" });
 
   const [wallet, setWallet] = useState(null);
   const [loadingWallet, setLoadingWallet] = useState(true);
@@ -24,15 +25,17 @@ export default function Topbar() {
 
     const init = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (!mounted) return;
         const u = session?.user;
         if (u) {
           const name =
             u.user_metadata?.full_name ||
             u.user_metadata?.name ||
-            (u.email ? u.email.split('@')[0] : 'User');
-          setProfile({ id: u.id, name, email: u.email ?? '' });
+            (u.email ? u.email.split("@")[0] : "User");
+          setProfile({ id: u.id, name, email: u.email ?? "" });
           setLoadingUser(false);
           await refreshWallet(u.id);
           subscribeToCredits(u.id);
@@ -41,7 +44,7 @@ export default function Topbar() {
           setWallet(null);
         }
       } catch (e) {
-        console.error('Auth bootstrap error:', e);
+        console.error("Auth bootstrap error:", e);
         setLoadingUser(false);
         setWallet(null);
       }
@@ -49,31 +52,35 @@ export default function Topbar() {
     init();
 
     // Keep server cookie in sync + react to changes
-    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
-      try {
-        // Sync cookie (works if you have /auth/callback; harmless if not)
-        await fetch('/auth/callback', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ event, session }),
-        });
-      } catch { /* ignore if route not present */ }
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        try {
+          // Sync cookie (works if you have /auth/callback; harmless if not)
+          await fetch("/auth/callback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ event, session }),
+          });
+        } catch {
+          /* ignore if route not present */
+        }
 
-      const u = session?.user;
-      if (u) {
-        const name =
-          u.user_metadata?.full_name ||
-          u.user_metadata?.name ||
-          (u.email ? u.email.split('@')[0] : 'User');
-        setProfile({ id: u.id, name, email: u.email ?? '' });
-        refreshWallet(u.id);
-        subscribeToCredits(u.id);
-      } else {
-        setProfile({ id: '', name: '', email: '' });
-        setWallet(null);
+        const u = session?.user;
+        if (u) {
+          const name =
+            u.user_metadata?.full_name ||
+            u.user_metadata?.name ||
+            (u.email ? u.email.split("@")[0] : "User");
+          setProfile({ id: u.id, name, email: u.email ?? "" });
+          refreshWallet(u.id);
+          subscribeToCredits(u.id);
+        } else {
+          setProfile({ id: "", name: "", email: "" });
+          setWallet(null);
+        }
       }
-    });
+    );
 
     return () => {
       sub.subscription.unsubscribe();
@@ -89,25 +96,29 @@ export default function Topbar() {
     setLoadingWallet(true);
     try {
       const { data, error } = await supabase
-        .from('wallet')
-        .select('balance')
-        .eq('user_id', uid)
+        .from("wallet")
+        .select("balance")
+        .eq("user_id", uid)
         .maybeSingle();
       if (!error && data) {
         setWallet(data.balance ?? 0);
       } else {
-        const res = await supabase.functions.invoke('wallet-read', { body: {} });
+        const res = await supabase.functions.invoke("wallet-read", {
+          body: {},
+        });
         const bal = res?.data?.balance ?? res?.data ?? null;
-        setWallet(typeof bal === 'number' ? bal : null);
+        setWallet(typeof bal === "number" ? bal : null);
       }
     } catch (e) {
-      console.warn('wallet load failed:', e);
+      console.warn("wallet load failed:", e);
       try {
-        const res = await supabase.functions.invoke('wallet-read', { body: {} });
+        const res = await supabase.functions.invoke("wallet-read", {
+          body: {},
+        });
         const bal = res?.data?.balance ?? res?.data ?? null;
-        setWallet(typeof bal === 'number' ? bal : null);
+        setWallet(typeof bal === "number" ? bal : null);
       } catch (e2) {
-        console.error('wallet-read failed:', e2);
+        console.error("wallet-read failed:", e2);
         setWallet(null);
       }
     } finally {
@@ -117,13 +128,20 @@ export default function Topbar() {
 
   // --- realtime: update when credits_ledger changes for this user
   function subscribeToCredits(userId) {
-    const existing = supabase.getChannels().find((c) => c.topic === 'realtime:wallet');
+    const existing = supabase
+      .getChannels()
+      .find((c) => c.topic === "realtime:wallet");
     if (existing) return;
     supabase
-      .channel('realtime:wallet')
+      .channel("realtime:wallet")
       .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'credits_ledger', filter: `user_id=eq.${userId}` },
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "credits_ledger",
+          filter: `user_id=eq.${userId}`,
+        },
         () => refreshWallet(userId)
       )
       .subscribe();
@@ -135,13 +153,15 @@ export default function Topbar() {
       await supabase.auth.signOut(); // clear browser session
       // clear server cookie so server routes/pages see you as signed out
       try {
-        await fetch('/auth/callback', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ event: 'SIGNED_OUT', session: null }),
+        await fetch("/auth/callback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ event: "SIGNED_OUT", session: null }),
         });
-      } catch {/* ignore if callback route not present */}
+      } catch {
+        /* ignore if callback route not present */
+      }
     } finally {
       // close realtime
       supabase.getChannels().forEach((ch) => supabase.removeChannel(ch));
@@ -154,10 +174,21 @@ export default function Topbar() {
   return (
     <div className="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-6">
       <div className="flex items-center gap-3">
-        <div className="text-sm font-semibold text-white">Dashboard</div>
+        {/* <div className="text-sm font-semibold text-white">Dashboard</div> */}
       </div>
 
       <div className="flex items-center gap-4">
+        {/* BUY CREDITS */}
+        <Link
+          href="/#pricing"
+          prefetch={false}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm"
+          title="Buy credits"
+        >
+          <WalletIcon className="w-4 h-4" />
+          Buy credits
+        </Link>
+
         <button
           type="button"
           onClick={() => refreshWallet()}
@@ -166,7 +197,9 @@ export default function Topbar() {
         >
           <WalletIcon className="w-4 h-4" />
           <span className="font-medium">Credits:</span>
-          <span className="tabular-nums">{loadingWallet ? '…' : (wallet ?? '--')}</span>
+          <span className="tabular-nums">
+            {loadingWallet ? "…" : wallet ?? "--"}
+          </span>
           <RefreshCcw className="w-3 h-3 opacity-70" />
         </button>
 
@@ -180,10 +213,10 @@ export default function Topbar() {
             </div>
             <div className="text-left hidden md:block">
               <div className="text-sm font-medium text-white">
-                {loadingUser ? 'Loading…' : (profile.name || 'Guest')}
+                {loadingUser ? "Loading…" : profile.name || "Guest"}
               </div>
               <div className="text-xs text-gray-400">
-                {loadingUser ? '' : (profile.email || '')}
+                {loadingUser ? "" : profile.email || ""}
               </div>
             </div>
           </button>
@@ -191,8 +224,12 @@ export default function Topbar() {
           {showUserMenu && (
             <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 z-50">
               <div className="px-4 py-2 border-b border-gray-700">
-                <div className="text-sm font-medium text-white">{profile.name || 'Guest'}</div>
-                {profile.email ? <div className="text-xs text-gray-400">{profile.email}</div> : null}
+                <div className="text-sm font-medium text-white">
+                  {profile.name || "Guest"}
+                </div>
+                {profile.email ? (
+                  <div className="text-xs text-gray-400">{profile.email}</div>
+                ) : null}
               </div>
 
               <button

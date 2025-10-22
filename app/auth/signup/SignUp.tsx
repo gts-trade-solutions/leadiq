@@ -21,7 +21,7 @@ export default function SignUpPage() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
-        const next = search.get('next') || '/campaigns';
+        const next = search.get('next') || '/companies';
         router.replace(next);
       }
     });

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSupabase } from "@/integrations/supabase/client";
 
-const DEFAULT_NEXT = "/portal/campaigns";
+const DEFAULT_NEXT = "/portal/companies";
 
 export default function SignInPage() {
   const supabase = useSupabase(); // your existing client (browser)
