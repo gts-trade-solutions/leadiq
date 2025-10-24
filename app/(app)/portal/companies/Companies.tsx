@@ -184,6 +184,7 @@ export default function CompaniesPage() {
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsError, setContactsError] = useState<string | null>(null);
   const [companyContacts, setCompanyContacts] = useState<ContactMini[]>([]);
+  const [totalContacts, setTotalContacts] = useState<number | null>(null);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(
     null
   );
@@ -498,6 +499,10 @@ export default function CompaniesPage() {
     setContactsError(null);
     setCompanyContacts([]);
     setSelectedCompanyName("");
+
+    // NEW: capture the total contacts you show in the table for this company
+    const rowForCompany = allRows.find((r) => r.company_id === company_id);
+    setTotalContacts(rowForCompany?.contacts ?? null);
 
     try {
       const res = await fetch(
@@ -1214,6 +1219,43 @@ export default function CompaniesPage() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
+                  {!contactsLoading && !contactsError && (
+                    <>
+                      {/* Redirect CTA if none unlocked OR some still locked */}
+                      {unlockedCount === 0 ||
+                      (totalContacts != null &&
+                        unlockedCount < totalContacts) ? (
+                        <div className="rounded-lg border border-amber-700/40 bg-amber-900/20 p-3 text-sm">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="text-amber-200">
+                              {unlockedCount === 0 ? (
+                                <span>
+                                  No contacts are unlocked for this company yet.
+                                </span>
+                              ) : (
+                                <span>
+                                  You have unlocked <b>{unlockedCount}</b>
+                                  {totalContacts != null ? (
+                                    <>
+                                      {" "}
+                                      of <b>{totalContacts}</b>
+                                    </>
+                                  ) : null}{" "}
+                                  contacts. Some contacts are still locked.
+                                </span>
+                              )}
+                            </div>
+                            <a
+                              href="/portal/contacts"
+                              className="shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white"
+                            >
+                              Go to Contacts
+                            </a>
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left border-b border-gray-700">
