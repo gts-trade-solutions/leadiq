@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import Link from "next/link";
 
-const LOGIN_ROUTE = "/auth/signin"; // ← change if your login path is different
+const LOGIN_ROUTE = "/auth/signin"; // adjust if your login path differs
 
 export default function Topbar() {
   const router = useRouter();
@@ -14,9 +14,13 @@ export default function Topbar() {
 
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [loadingUser, setLoadingUser] = useState(true);
-  const [profile, setProfile] = useState({ id: "", name: "", email: "" });
+  const [profile, setProfile] = useState ({
+    id: "",
+    name: "",
+    email: "",
+  });
 
-  const [wallet, setWallet] = useState(null);
+  const [wallet, setWallet] = useState (null);
   const [loadingWallet, setLoadingWallet] = useState(true);
 
   // --- boot user + session
@@ -25,9 +29,7 @@ export default function Topbar() {
 
     const init = async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        const { data: { session } } = await supabase.auth.getSession();
         if (!mounted) return;
         const u = session?.user;
         if (u) {
@@ -51,39 +53,25 @@ export default function Topbar() {
     };
     init();
 
-    // Keep server cookie in sync + react to changes
-    const { data: sub } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        try {
-          // Sync cookie (works if you have /auth/callback; harmless if not)
-          await fetch("/auth/callback", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "same-origin",
-            body: JSON.stringify({ event, session }),
-          });
-        } catch {
-          /* ignore if route not present */
-        }
-
-        const u = session?.user;
-        if (u) {
-          const name =
-            u.user_metadata?.full_name ||
-            u.user_metadata?.name ||
-            (u.email ? u.email.split("@")[0] : "User");
-          setProfile({ id: u.id, name, email: u.email ?? "" });
-          refreshWallet(u.id);
-          subscribeToCredits(u.id);
-        } else {
-          setProfile({ id: "", name: "", email: "" });
-          setWallet(null);
-        }
+    // React to auth state changes (NO callback API; simple local update)
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      const u = session?.user;
+      if (u) {
+        const name =
+          u.user_metadata?.full_name ||
+          u.user_metadata?.name ||
+          (u.email ? u.email.split("@")[0] : "User");
+        setProfile({ id: u.id, name, email: u.email ?? "" });
+        refreshWallet(u.id);
+        subscribeToCredits(u.id);
+      } else {
+        setProfile({ id: "", name: "", email: "" });
+        setWallet(null);
       }
-    );
+    });
 
     return () => {
-      sub.subscription.unsubscribe();
+      sub?.subscription?.unsubscribe?.();
       supabase.getChannels().forEach((ch) => supabase.removeChannel(ch));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,18 +91,14 @@ export default function Topbar() {
       if (!error && data) {
         setWallet(data.balance ?? 0);
       } else {
-        const res = await supabase.functions.invoke("wallet-read", {
-          body: {},
-        });
+        const res = await supabase.functions.invoke("wallet-read", { body: {} });
         const bal = res?.data?.balance ?? res?.data ?? null;
         setWallet(typeof bal === "number" ? bal : null);
       }
     } catch (e) {
       console.warn("wallet load failed:", e);
       try {
-        const res = await supabase.functions.invoke("wallet-read", {
-          body: {},
-        });
+        const res = await supabase.functions.invoke("wallet-read", { body: {} });
         const bal = res?.data?.balance ?? res?.data ?? null;
         setWallet(typeof bal === "number" ? bal : null);
       } catch (e2) {
@@ -128,54 +112,37 @@ export default function Topbar() {
 
   // --- realtime: update when credits_ledger changes for this user
   function subscribeToCredits(userId) {
-    const existing = supabase
-      .getChannels()
-      .find((c) => c.topic === "realtime:wallet");
+    const existing = supabase.getChannels().find((c) => c.topic === "realtime:wallet");
     if (existing) return;
     supabase
       .channel("realtime:wallet")
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "credits_ledger",
-          filter: `user_id=eq.${userId}`,
-        },
+        { event: "*", schema: "public", table: "credits_ledger", filter: `user_id=eq.${userId}` },
         () => refreshWallet(userId)
       )
       .subscribe();
   }
 
-  // --- sign out (client + server cookies + redirect)
-  const handleSignOut = async () => {
-    try {
-      await supabase.auth.signOut(); // clear browser session
-      // clear server cookie so server routes/pages see you as signed out
-      try {
-        await fetch("/auth/callback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ event: "SIGNED_OUT", session: null }),
-        });
-      } catch {
-        /* ignore if callback route not present */
-      }
-    } finally {
-      // close realtime
-      supabase.getChannels().forEach((ch) => supabase.removeChannel(ch));
-      // navigate to login
-      router.replace(LOGIN_ROUTE);
-      router.refresh();
-    }
-  };
+  // --- simple sign out (no /auth/callback)
+// --- simple sign out (no /auth/callback), then hard redirect with a flag
+const handleSignOut = async () => {
+  try {
+    // revoke tokens + clear client storage
+    await supabase.auth.signOut({ scope: "global" });
+    // clear server HttpOnly cookies
+    await fetch("/api/auth/signout", { method: "POST", credentials: "same-origin" });
+  } finally {
+    // close realtime + hard redirect to avoid any stale RSC/middleware state
+    supabase.getChannels().forEach((ch) => supabase.removeChannel(ch));
+    window.location.href = "/auth/signin?signedout=1";
+  }
+};
+
 
   return (
     <div className="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-6">
-      <div className="flex items-center gap-3">
-        {/* <div className="text-sm font-semibold text-white">Dashboard</div> */}
-      </div>
+      <div className="flex items-center gap-3">{/* left slot */}</div>
 
       <div className="flex items-center gap-4">
         {/* BUY CREDITS */}
@@ -197,9 +164,7 @@ export default function Topbar() {
         >
           <WalletIcon className="w-4 h-4" />
           <span className="font-medium">Credits:</span>
-          <span className="tabular-nums">
-            {loadingWallet ? "…" : wallet ?? "--"}
-          </span>
+          <span className="tabular-nums">{loadingWallet ? "…" : wallet ?? "--"}</span>
           <RefreshCcw className="w-3 h-3 opacity-70" />
         </button>
 

@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import Image from "next/image";
 
 /**
  * All items (flattened from your previous sections)
@@ -211,9 +212,14 @@ export default function Sidebar() {
           aria-label="Go to home"
           title="Home"
         >
-          <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
-            <BarChart3 className="w-5 h-5 text-white" />
-          </div>
+           <Image
+                  src="/Ri-Logo-Graph-White.webp"
+                  alt="LeadSentra logo"
+                  width={48}
+                  height={48}
+                  className="w-8 h-8 rounded-lg object-contain"
+                  priority
+                />
           {!isCollapsed && (
             <span className="text-xl font-bold text-white">LeadSentra</span>
           )}

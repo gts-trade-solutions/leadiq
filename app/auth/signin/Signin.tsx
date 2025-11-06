@@ -19,19 +19,24 @@ export default function SignInPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // If already signed in, bounce to next
-  useEffect(() => {
-    let alive = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!alive) return;
-      if (data.session) {
-        const next = search.get("next") || DEFAULT_NEXT;
-        router.replace(next);
-      }
-    });
-    return () => {
-      alive = false;
-    };
-  }, [router, search, supabase]);
+// If already signed in, bounce to next — unless we just signed out
+useEffect(() => {
+  let alive = true;
+  const justSignedOut = search.get("signedout") === "1";
+  if (justSignedOut) return; // ← don't auto-redirect after logout
+
+  supabase.auth.getSession().then(({ data }) => {
+    if (!alive) return;
+    if (data.session) {
+      const next = search.get("next") || DEFAULT_NEXT;
+      router.replace(next);
+    }
+  });
+  return () => {
+    alive = false;
+  };
+}, [router, search, supabase]);
+
 
   // Optional: sync the session to /auth/callback if you created that route
   async function syncAuthToServer() {
