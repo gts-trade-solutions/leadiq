@@ -1,0 +1,35 @@
+// app/api/track/open/route.ts
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+export const dynamic = "force-dynamic";
+
+// 1x1 transparent PNG (inline)
+const PNG_1PX = Uint8Array.from([
+  0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0x00,0x00,0x00,0x0d,0x49,0x48,0x44,0x52,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x08,0x06,0x00,0x00,0x00,0x1f,0x15,0xc4,0x89,0x00,0x00,0x00,0x0a,0x49,0x44,0x41,0x54,0x78,0x9c,0x63,0xf8,0xcf,0xc0,0x00,0x00,0x03,0x01,0x01,0x00,0x18,0xdd,0x8d,0x07,0x00,0x00,0x00,0x00,0x49,0x45,0x4e,0x44,0xae,0x42,0x60,0x82
+]);
+
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const c = searchParams.get("c"); // campaign_id (uuid)
+  const t = searchParams.get("t"); // tracking_token (text)
+
+  if (c && t) {
+    try {
+      // Atomic: sets opened_at on first open, increments opens_count, touches last_event_at
+      await supabaseAdmin.rpc("cr_mark_open", { p_campaign: c, p_token: t });
+    } catch (e) {
+      console.error("cr_mark_open error", e);
+    }
+  }
+
+  return new NextResponse(PNG_1PX, {
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
+      "Content-Disposition": "inline; filename=px.png",
+    },
+  });
+}
